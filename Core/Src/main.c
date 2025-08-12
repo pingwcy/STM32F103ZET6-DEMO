@@ -227,6 +227,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
   lcd_init();
   lsens_init();
+  uint8_t year, month, day, hour, minute, second;
+  Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
+  if ((int)year < 1){
+	  Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
+  }
   HAL_UART_Receive_IT(&huart1, &close_red, 1);
   g_point_color = RED;
   sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
@@ -236,10 +241,9 @@ int main(void)
   lcd_show_string(10, 110, 240, 16, 16, "pingwcy@outlook.com", RED);
   lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
   lcd_show_string(10, 150, 240, 16, 16, "LUT University, Lappeenranta", RED);
-  lcd_show_string(10, 190, 240, 16, 16, "LSENS_VAL:", BLUE);
+  lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
   int k = 0;
   short adcx;
-  uint8_t year, month, day, hour, minute, second;
 
   /* USER CODE END 2 */
 
@@ -449,9 +453,6 @@ static void MX_RTC_Init(void)
 
   /* USER CODE END RTC_Init 0 */
 
-  RTC_TimeTypeDef sTime = {0};
-  RTC_DateTypeDef DateToUpdate = {0};
-
   /* USER CODE BEGIN RTC_Init 1 */
 
   /* USER CODE END RTC_Init 1 */
@@ -460,32 +461,8 @@ static void MX_RTC_Init(void)
   */
   hrtc.Instance = RTC;
   hrtc.Init.AsynchPrediv = RTC_AUTO_1_SECOND;
-  hrtc.Init.OutPut = RTC_OUTPUTSOURCE_NONE;
+  hrtc.Init.OutPut = RTC_OUTPUTSOURCE_ALARM;
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /* USER CODE BEGIN Check_RTC_BKUP */
-
-  /* USER CODE END Check_RTC_BKUP */
-
-  /** Initialize RTC and set the Time and Date
-  */
-  sTime.Hours = 0x12;
-  sTime.Minutes = 0x30;
-  sTime.Seconds = 0x0;
-
-  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  DateToUpdate.WeekDay = RTC_WEEKDAY_MONDAY;
-  DateToUpdate.Month = RTC_MONTH_AUGUST;
-  DateToUpdate.Date = 0x11;
-  DateToUpdate.Year = 0x55;
-
-  if (HAL_RTC_SetDate(&hrtc, &DateToUpdate, RTC_FORMAT_BCD) != HAL_OK)
   {
     Error_Handler();
   }
@@ -537,77 +514,75 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 	__HAL_RCC_AFIO_CLK_ENABLE();
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_5, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_5|GPIO_PIN_8, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PE3 PE4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PE5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB0 PB5 PB8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_5|GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 2, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 3, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 4, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-	__HAL_RCC_GPIOE_CLK_ENABLE();
-HAL_Delay(1);
-__HAL_RCC_GPIOB_CLK_ENABLE();
-HAL_Delay(1);
-//__HAL_RCC_GPIOA_CLK_ENABLE();
 
-GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-GPIO_InitStruct.Pin = GPIO_PIN_0;
-GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-GPIO_InitStruct.Pull = GPIO_NOPULL;
-GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // 初始点亮
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // Turn on LED Screen back light
 
-GPIO_InitStruct.Pin = BEEP_PIN;
-GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-GPIO_InitStruct.Pull = GPIO_NOPULL;
-GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
-HAL_GPIO_Init(BEEP_PORT, &GPIO_InitStruct);
+  /* Beep*/
+  //HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_SET); // �??????
+  HAL_Delay(BEEP_SHORT_BEEP_TIME);
+  HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_RESET); // �??????
 
-/* �??????机蜂鸣提�?????? */
-//HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_SET); // �??????
-HAL_Delay(BEEP_SHORT_BEEP_TIME);
-HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_RESET); // �??????
+  HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET); //PB5 Red LED
 
-GPIO_InitStruct.Pin = PB5_LED_PIN;
-GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-GPIO_InitStruct.Pull = GPIO_NOPULL;
-GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-HAL_GPIO_Init(PB5_LED_PORT, &GPIO_InitStruct);
-HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET); // �??????机立即点�??????
-__DSB(); // 数据同步屏障，确保操作完�??????
-
-// 配置PE5为输出（用户控制LED�??????
-GPIO_InitStruct.Pin = LED_PIN;
-HAL_GPIO_Init(LED_PORT, &GPIO_InitStruct);
-
-// 配置PE3/PE4为输入（按键�??????
-GPIO_InitStruct.Pin = BTN_PIN1 | BTN_PIN2;
-GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-GPIO_InitStruct.Pull = GPIO_PULLUP;  // 启用内部上拉
-HAL_GPIO_Init(BTN_PORT, &GPIO_InitStruct);
-
-GPIO_InitStruct.Pin = BTN_PIN0;
-GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-GPIO_InitStruct.Pull = GPIO_PULLDOWN;  // 启用内部下拉
-HAL_GPIO_Init(BTN_PORT0, &GPIO_InitStruct);
-// 设置中断优先级并使能中断
-HAL_NVIC_SetPriority(EXTI3_IRQn, 3, 0);
-HAL_NVIC_EnableIRQ(EXTI3_IRQn);  // PE3
-HAL_NVIC_SetPriority(EXTI4_IRQn, 4, 0);
-HAL_NVIC_EnableIRQ(EXTI4_IRQn);  // PE4
-HAL_NVIC_SetPriority(EXTI0_IRQn, 2, 0);
-HAL_NVIC_EnableIRQ(EXTI0_IRQn);  // PA0
-
-last_tick = HAL_GetTick();
+  last_tick = HAL_GetTick();
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
