@@ -72,6 +72,8 @@ uint8_t last_btn_state3 = 1;
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc3;
 
+I2C_HandleTypeDef hi2c1;
+
 IWDG_HandleTypeDef hiwdg;
 
 RTC_HandleTypeDef hrtc;
@@ -100,6 +102,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_FSMC_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_ADC3_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -224,9 +227,18 @@ int main(void)
   MX_FSMC_Init();
   MX_IWDG_Init();
   MX_ADC3_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   lcd_init();
   lsens_init();
+  at24cxx_init();
+
+  const uint8_t g_text_buf[] = {"This data is from EEPROM!"};
+
+  #define TEXT_SIZE       sizeof(g_text_buf)
+  uint8_t datatemp[TEXT_SIZE];
+
+  delay_init(72);
   uint8_t year, month, day, hour, minute, second;
   Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
   if ((int)year < 1){
@@ -244,6 +256,22 @@ int main(void)
   lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
   int k = 0;
   short adcx;
+  HAL_IWDG_Refresh(&hiwdg);
+
+  //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
+  at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
+  HAL_IWDG_Refresh(&hiwdg);
+
+  lcd_show_string(10, 230, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
+
+  lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
+  at24cxx_read(0, datatemp, TEXT_SIZE);
+  lcd_show_string(10, 270, 200, 16, 16, "The Data Readed Is:  ", RED);
+  lcd_show_string(10, 290, 200, 16, 16, (char *)datatemp, RED);
+  for (int i = 0; i < TEXT_SIZE; i++)
+  {
+      HAL_UART_Transmit(&huart1, &datatemp[i], 1, 100);
+  }
 
   /* USER CODE END 2 */
 
@@ -410,6 +438,40 @@ static void MX_ADC3_Init(void)
   /* USER CODE BEGIN ADC3_Init 2 */
 
   /* USER CODE END ADC3_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
