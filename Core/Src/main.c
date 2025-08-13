@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "../../BSP/lcd/lcd.h"
 #include "stm32f1xx_hal.h"  // HAL库主头文件
+#include "../../BSP/TOUCH/touch.h"
 
 /* USER CODE END Includes */
 
@@ -277,10 +278,6 @@ int main(void)
   at24cxx_read(0, datatemp, TEXT_SIZE);
   lcd_show_string(10, 230, 200, 16, 16, "EEPROM Data Readed Is:", RED);
   lcd_show_string(10, 250, 200, 16, 16, (char *)datatemp, RED);
-  for (int i = 0; i < TEXT_SIZE; i++)
-  {
-      HAL_UART_Transmit(&huart1, &datatemp[i], 1, 100);
-  }
 
   HAL_IWDG_Refresh(&hiwdg);
 
@@ -289,6 +286,12 @@ int main(void)
   norflash_read(datatemp2, flashsize - 100, TEXT_SIZE2);
   lcd_show_string(10, 270, 200, 16, 16, "Data Readed From Flash Is:", BLUE);
   lcd_show_string(10, 290, 200, 16, 16, (char *)datatemp2, BLUE);
+
+  for (int i = 0; i < TEXT_SIZE2; i++)
+  {
+      HAL_UART_Transmit(&huart1, &datatemp2[i], 1, 100);
+  }
+  tp_dev.init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -296,6 +299,17 @@ int main(void)
   while (1)
   {
 	  HAL_IWDG_Refresh(&hiwdg);
+      tp_dev.scan(0);
+
+      if (tp_dev.sta & TP_PRES_DOWN)  /* On press */
+      {
+    	  lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
+
+          if (tp_dev.x[0] < lcddev.width && tp_dev.y[0] < lcddev.height)
+          {
+          }
+      }
+
 	    uint32_t current_tick = HAL_GetTick();
 	    k++;
 	    if (tx_request_flag) {
