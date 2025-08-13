@@ -78,6 +78,8 @@ IWDG_HandleTypeDef hiwdg;
 
 RTC_HandleTypeDef hrtc;
 
+SPI_HandleTypeDef hspi2;
+
 UART_HandleTypeDef huart1;
 
 SRAM_HandleTypeDef hsram1;
@@ -103,6 +105,7 @@ static void MX_FSMC_Init(void);
 static void MX_IWDG_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -228,15 +231,21 @@ int main(void)
   MX_IWDG_Init();
   MX_ADC3_Init();
   MX_I2C1_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   lcd_init();
   lsens_init();
   at24cxx_init();
-
+  norflash_init();
   const uint8_t g_text_buf[] = {"This data is from EEPROM!"};
-
   #define TEXT_SIZE       sizeof(g_text_buf)
   uint8_t datatemp[TEXT_SIZE];
+
+  const uint8_t g_text_buf2[] = {"Sloth from SPI-Flash!"};
+  #define TEXT_SIZE2 sizeof(g_text_buf2) /* TEXT×Ö·û´®³¤¶È */
+  uint8_t datatemp2[TEXT_SIZE2];
+  uint32_t flashsize = 16 * 1024 * 1024;
+  uint16_t i = 0;
 
   delay_init(72);
   uint8_t year, month, day, hour, minute, second;
@@ -245,7 +254,7 @@ int main(void)
 	  Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
   }
   HAL_UART_Receive_IT(&huart1, &close_red, 1);
-  g_point_color = RED;
+  g_point_color = BLUE;
   sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
   lcd_clear(BLUE);
   lcd_show_string(10, 40, 240, 32, 32, "STM32F103ZET6", RED);
@@ -259,20 +268,27 @@ int main(void)
   HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
-  at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
+  //at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
   HAL_IWDG_Refresh(&hiwdg);
 
-  lcd_show_string(10, 230, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
+  //lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
 
-  lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
+  //lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
   at24cxx_read(0, datatemp, TEXT_SIZE);
-  lcd_show_string(10, 270, 200, 16, 16, "The Data Readed Is:  ", RED);
-  lcd_show_string(10, 290, 200, 16, 16, (char *)datatemp, RED);
+  lcd_show_string(10, 230, 200, 16, 16, "EEPROM Data Readed Is:", RED);
+  lcd_show_string(10, 250, 200, 16, 16, (char *)datatemp, RED);
   for (int i = 0; i < TEXT_SIZE; i++)
   {
       HAL_UART_Transmit(&huart1, &datatemp[i], 1, 100);
   }
 
+  HAL_IWDG_Refresh(&hiwdg);
+
+  sprintf((char *)datatemp2, "%s%d", (char *)g_text_buf2, i);
+  //norflash_write((uint8_t *)datatemp2, flashsize - 100, TEXT_SIZE2);      /* ´Óµ¹ÊýµÚ100¸öµØÖ·´¦¿ªÊ¼,Ð´ÈëSIZE³¤¶ÈµÄÊý¾Ý */
+  norflash_read(datatemp2, flashsize - 100, TEXT_SIZE2);
+  lcd_show_string(10, 270, 200, 16, 16, "Data Readed From Flash Is:", BLUE);
+  lcd_show_string(10, 290, 200, 16, 16, (char *)datatemp2, BLUE);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -531,6 +547,44 @@ static void MX_RTC_Init(void)
   /* USER CODE BEGIN RTC_Init 2 */
 
   /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
 
 }
 
