@@ -81,6 +81,8 @@ RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi2;
 
+TIM_HandleTypeDef htim4;
+
 UART_HandleTypeDef huart1;
 
 SRAM_HandleTypeDef hsram1;
@@ -107,6 +109,7 @@ static void MX_IWDG_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -233,11 +236,14 @@ int main(void)
   MX_ADC3_Init();
   MX_I2C1_Init();
   MX_SPI2_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   lcd_init();
   lsens_init();
   at24cxx_init();
   norflash_init();
+  remote_init();
+  uint8_t key;
   const uint8_t g_text_buf[] = {"It's a good sloth!"};
   #define TEXT_SIZE       sizeof(g_text_buf)
   uint8_t datatemp[TEXT_SIZE];
@@ -299,8 +305,18 @@ int main(void)
   while (1)
   {
 	  HAL_IWDG_Refresh(&hiwdg);
+	  key = remote_scan();
       tp_dev.scan(0);
+      if (key == 0){
+    	  lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+      }
+      else if (key == 22){
+    	  lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
 
+      }
+      else if (key == 69){
+    	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0));
+      }
       if (tp_dev.sta & TP_PRES_DOWN)  /* On press */
       {
     	  lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
@@ -343,7 +359,7 @@ int main(void)
 	            HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
 	        }
 	    }
-	    if (k==100){
+	    if (k==20){
 	    	k = 0;
 	        Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
 	        char datetime[25]; // 格式: "YYYY-MM-DD HH:MM:SS" + null终止符
@@ -523,8 +539,8 @@ static void MX_IWDG_Init(void)
 
   /* USER CODE END IWDG_Init 1 */
   hiwdg.Instance = IWDG;
-  hiwdg.Init.Prescaler = IWDG_PRESCALER_4;
-  hiwdg.Init.Reload = 4095;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_256;
+  hiwdg.Init.Reload = 468;
   if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
   {
     Error_Handler();
@@ -601,6 +617,64 @@ static void MX_SPI2_Init(void)
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim4, &sConfigIC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
