@@ -238,11 +238,11 @@ int main(void)
   lsens_init();
   at24cxx_init();
   norflash_init();
-  const uint8_t g_text_buf[] = {"This data is from EEPROM!"};
+  const uint8_t g_text_buf[] = {"It's a good sloth!"};
   #define TEXT_SIZE       sizeof(g_text_buf)
   uint8_t datatemp[TEXT_SIZE];
 
-  const uint8_t g_text_buf2[] = {"Sloth from SPI-Flash!"};
+  const uint8_t g_text_buf2[] = {"A nice Sloth!"};
   #define TEXT_SIZE2 sizeof(g_text_buf2) /* TEXT×Ö·û´®³¤¶È */
   uint8_t datatemp2[TEXT_SIZE2];
   uint32_t flashsize = 16 * 1024 * 1024;
@@ -323,6 +323,8 @@ int main(void)
 	            HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_SET);
 	        } else if (close_red == 0xDD) {
 	            HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
+	        } else if (close_red == 0xEE){
+	      	  lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
 	        }
 	        HAL_UART_Receive_IT(&huart1, &close_red, 1);
 	    }
