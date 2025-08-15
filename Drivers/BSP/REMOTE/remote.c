@@ -110,31 +110,7 @@ void REMOTE_IN_TIMX_IRQHandler(void)
  * @param       htim:��ʱ�����
  * @retval      ��
  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if (htim->Instance == REMOTE_IN_TIMX)
-    {
-        if (g_remote_sta & 0x80)      /* �ϴ������ݱ����յ��� */
-        {
-            g_remote_sta &= ~0X10;    /* ȡ���������Ѿ��������� */
-
-            if ((g_remote_sta & 0X0F) == 0X00)
-            {
-                g_remote_sta |= 1 << 6; /* ����Ѿ����һ�ΰ����ļ�ֵ��Ϣ�ɼ� */
-            }
-            
-            if ((g_remote_sta & 0X0F) < 14)
-            {
-                g_remote_sta++;
-            }
-            else
-            {
-                g_remote_sta &= ~(1 << 7);    /* ���������ʶ */
-                g_remote_sta &= 0XF0;         /* ��ռ����� */
-            }
-        }
-    }
-}
+extern void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 /**
  * @brief       ��ʱ�����벶���жϻص�����

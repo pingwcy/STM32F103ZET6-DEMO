@@ -18,12 +18,20 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "../../BSP/lcd/lcd.h"
 #include "stm32f1xx_hal.h"  // HAL库主头文件
 #include "../../BSP/TOUCH/touch.h"
+#include "../../BSP/NORFLASH/norflash.h"
+#include "../../BSP/REMOTE/remote.h"
+#include "../../BSP/24CXX/24cxx.h"
+#include "../../BSP/LSENS/lsens.h"
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "event_groups.h"
 
 /* USER CODE END Includes */
 
@@ -38,6 +46,11 @@ typedef enum {
 volatile LedMode_t led_mode = LED_OFF;
 uint32_t last_tick = 0;
 uint32_t last_tick2 = 0;
+
+extern uint8_t g_remote_sta;
+
+#define TOUCH_EVENT        (1 << 0)
+#define UART_REVERT_EVENT  (1 << 1)
 
 uint32_t last_debounce_time = 0;
 uint8_t last_btn_state1 = 1;
@@ -81,13 +94,22 @@ RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi2;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 
 SRAM_HandleTypeDef hsram1;
 
+/* Definitions for defaultTask */
+osThreadId_t defaultTaskHandle;
+const osThreadAttr_t defaultTask_attributes = {
+  .name = "defaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
+
 uint8_t tx_e3 = 0xE3;
 uint8_t tx_e4 = 0xE4;
 uint8_t tx_a0 = 0xA0;
@@ -110,6 +132,9 @@ static void MX_ADC3_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM2_Init(void);
+void StartDefaultTask(void *argument);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -196,6 +221,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         uart_rx_flag = 1;
     }
 }
+void delay_init(uint16_t sysclk)
+{
+    //g_fac_us = sysclk;
+}
+
+void delay_us(uint32_t nus)
+{
+    uint32_t start = __HAL_TIM_GET_COUNTER(&htim2);
+    while ((__HAL_TIM_GET_COUNTER(&htim2) - start) < nus)
+    {
+        // 等待
+    }
+}
+
+void delay_ms(uint16_t nms)
+{
+
+    delay_us((uint32_t)(nms * 1000));
+}
+
+//void HAL_Delay(uint32_t Delay)
+//{
+//     delay_ms(Delay);
+//}
 
 /* USER CODE END 0 */
 
@@ -237,13 +286,13 @@ int main(void)
   MX_I2C1_Init();
   MX_SPI2_Init();
   MX_TIM4_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   lcd_init();
   lsens_init();
   at24cxx_init();
   norflash_init();
   remote_init();
-  uint8_t key;
   const uint8_t g_text_buf[] = {"It's a good sloth!"};
   #define TEXT_SIZE       sizeof(g_text_buf)
   uint8_t datatemp[TEXT_SIZE];
@@ -270,8 +319,6 @@ int main(void)
   lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
   lcd_show_string(10, 150, 240, 16, 16, "LUT University, Lappeenranta", RED);
   lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
-  int k = 0;
-  short adcx;
   HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
@@ -300,85 +347,47 @@ int main(void)
   tp_dev.init();
   /* USER CODE END 2 */
 
+  /* Init scheduler */
+  osKernelInitialize();
+
+  /* USER CODE BEGIN RTOS_MUTEX */
+  /* add mutexes, ... */
+  /* USER CODE END RTOS_MUTEX */
+
+  /* USER CODE BEGIN RTOS_SEMAPHORES */
+  /* add semaphores, ... */
+  /* USER CODE END RTOS_SEMAPHORES */
+
+  /* USER CODE BEGIN RTOS_TIMERS */
+  /* start timers, add new ones, ... */
+  /* USER CODE END RTOS_TIMERS */
+
+  /* USER CODE BEGIN RTOS_QUEUES */
+  /* add queues, ... */
+  /* USER CODE END RTOS_QUEUES */
+
+  /* Create the thread(s) */
+  /* creation of defaultTask */
+  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+
+  /* USER CODE BEGIN RTOS_THREADS */
+  /* add threads, ... */
+
+  /* USER CODE END RTOS_THREADS */
+
+  /* USER CODE BEGIN RTOS_EVENTS */
+  /* add events, ... */
+  /* USER CODE END RTOS_EVENTS */
+
+  /* Start scheduler */
+  osKernelStart();
+
+  /* We should never get here as control is now taken by the scheduler */
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  HAL_IWDG_Refresh(&hiwdg);
-	  key = remote_scan();
-      tp_dev.scan(0);
-      if (key == 0){
-    	  lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-      }
-      else if (key == 22){
-    	  lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
-
-      }
-      else if (key == 69){
-    	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0));
-      }
-      if (tp_dev.sta & TP_PRES_DOWN)  /* On press */
-      {
-    	  lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
-
-          if (tp_dev.x[0] < lcddev.width && tp_dev.y[0] < lcddev.height)
-          {
-          }
-      }
-
-	    uint32_t current_tick = HAL_GetTick();
-	    k++;
-	    if (tx_request_flag) {
-	        tx_request_flag = 0;
-	        // 阻塞发送很短的数据在主循环是安全的
-	        HAL_UART_Transmit(&huart1, (uint8_t *)&tx_request_byte, 1, 100);
-	    }
-	    if (uart_rx_flag) {
-	        uart_rx_flag = 0;
-	        if (close_red == 0xCC) {
-	            HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_SET);
-	        } else if (close_red == 0xDD) {
-	            HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
-	        } else if (close_red == 0xEE){
-	      	  lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
-	        }
-	        HAL_UART_Receive_IT(&huart1, &close_red, 1);
-	    }
-
-	    // LED闪烁控制
-	    if(led_mode == LED_BLINK) {
-	        int blink_int = 333;
-
-	        Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-	        if (second >= 31){
-	            blink_int = 1000;
-	        }
-
-	        if((current_tick - last_tick) >= blink_int) {
-	            last_tick = current_tick;
-	            HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-	        }
-	    }
-	    if (k==20){
-	    	k = 0;
-	        Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-	        char datetime[25]; // 格式: "YYYY-MM-DD HH:MM:SS" + null终止符
-
-	        // 使用snprintf拼接字符串，年份加上1970
-	        snprintf(datetime, sizeof(datetime),
-	                 "%04d-%02d-%02d %02d:%02d:%02d",
-	                 (int)year + 1970, // 年份加上1970
-	                 (int)month,
-	                 (int)day,
-	                 (int)hour,
-	                 (int)minute,
-	                 (int)second);
-	        lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
-	        adcx = lsens_get_val();
-	        lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
-
-	    }
-	    HAL_Delay(10); // 降低CPU占用
 
 
     /* USER CODE END WHILE */
@@ -621,6 +630,62 @@ static void MX_SPI2_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 72 - 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 65535;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+  __HAL_RCC_TIM2_CLK_ENABLE();
+
+  //TIM_HandleTypeDef htim2;
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 72 - 1;  // 1 MHz, 1 us per tick
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 0xFFFF;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  HAL_TIM_Base_Init(&htim2);
+
+  HAL_TIM_Base_Start(&htim2);
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief TIM4 Initialization Function
   * @param None
   * @retval None
@@ -767,13 +832,13 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 2, 0);
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 6, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI3_IRQn, 3, 0);
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 7, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
-  HAL_NVIC_SetPriority(EXTI4_IRQn, 4, 0);
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 8, 0);
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -851,7 +916,155 @@ static void MX_FSMC_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+
 /* USER CODE END 4 */
+
+/* USER CODE BEGIN Header_StartDefaultTask */
+/**
+  * @brief  Function implementing the defaultTask thread.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header_StartDefaultTask */
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN 5 */
+  /* Infinite loop */
+	  for(;;)
+	  {
+	        HAL_IWDG_Refresh(&hiwdg);
+
+		    uint8_t key;
+		    uint8_t year, month, day, hour, minute, second;
+		    int k = 0;
+		    short adcx;
+
+		    for(;;) // FreeRTOS 任务循环
+		    {
+		        HAL_IWDG_Refresh(&hiwdg);
+		        key = remote_scan();
+		        tp_dev.scan(0);
+
+		        if (key == 0){
+		            lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+		        }
+		        else if (key == 22){
+		            lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
+		        }
+		        else if (key == 25){
+		            lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED);
+		        }
+		        else if (key == 13){
+		            lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED);
+		        }
+		        else if (key == 69){
+		            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0));
+		        }
+
+		        if (tp_dev.sta & TP_PRES_DOWN)
+		        {
+		            lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
+		        }
+
+		        uint32_t current_tick = HAL_GetTick();
+		        k++;
+
+		        if (tx_request_flag) {
+		            tx_request_flag = 0;
+		            HAL_UART_Transmit(&huart1, (uint8_t *)&tx_request_byte, 1, 100);
+		        }
+		        if (uart_rx_flag) {
+		            uart_rx_flag = 0;
+		            if (close_red == 0xCC) {
+		                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_SET);
+		            } else if (close_red == 0xDD) {
+		                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
+		            } else if (close_red == 0xEE){
+		                lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
+		            }
+		            HAL_UART_Receive_IT(&huart1, &close_red, 1);
+		        }
+
+		        // LED 闪烁
+		        if(led_mode == LED_BLINK) {
+		            int blink_int = 333;
+		            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
+		            if (second >= 31){
+		                blink_int = 1000;
+		            }
+		            static uint32_t last_tick = 0;
+		            if((current_tick - last_tick) >= blink_int) {
+		                last_tick = current_tick;
+		                HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
+		            }
+		        }
+
+		        if (k == 20){
+		            k = 0;
+		            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
+		            char datetime[25];
+		            snprintf(datetime, sizeof(datetime),
+		                     "%04d-%02d-%02d %02d:%02d:%02d",
+		                     (int)year + 1970,
+		                     (int)month,
+		                     (int)day,
+		                     (int)hour,
+		                     (int)minute,
+		                     (int)second);
+		            lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
+		            adcx = lsens_get_val();
+		            lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
+		        }
+
+		        osDelay(10); // FreeRTOS 任务延时代替 HAL_Delay
+		    }
+	  }
+	  /* USER CODE END 5 */
+}
+
+/**
+  * @brief  Period elapsed callback in non blocking mode
+  * @note   This function is called  when TIM7 interrupt took place, inside
+  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+  * a global variable "uwTick" used as application time base.
+  * @param  htim : TIM handle
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  /* USER CODE BEGIN Callback 0 */
+
+  /* USER CODE END Callback 0 */
+  if (htim->Instance == TIM7)
+  {
+    HAL_IncTick();
+  }
+  /* USER CODE BEGIN Callback 1 */
+  if (htim->Instance == TIM4)
+  {
+      if (g_remote_sta & 0x80)      /* �ϴ������ݱ����յ��� */
+      {
+          g_remote_sta &= ~0X10;    /* ȡ���������Ѿ��������� */
+
+          if ((g_remote_sta & 0X0F) == 0X00)
+          {
+              g_remote_sta |= 1 << 6; /* ����Ѿ����һ�ΰ����ļ�ֵ��Ϣ�ɼ� */
+          }
+
+          if ((g_remote_sta & 0X0F) < 14)
+          {
+              g_remote_sta++;
+          }
+          else
+          {
+              g_remote_sta &= ~(1 << 7);    /* ���������ʶ */
+              g_remote_sta &= 0XF0;         /* ��ռ����� */
+          }
+      }
+  }
+
+  /* USER CODE END Callback 1 */
+}
 
 /**
   * @brief  This function is executed in case of error occurrence.
