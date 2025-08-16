@@ -32,6 +32,9 @@
 #include "FreeRTOS.h"
 #include "queue.h"
 #include "event_groups.h"
+#include "../../Crypto/whirlpool/Whirlpool.h"
+#include <stdlib.h>
+#include <time.h>
 
 /* USER CODE END Includes */
 
@@ -46,7 +49,6 @@ typedef enum {
 volatile LedMode_t led_mode = LED_OFF;
 uint32_t last_tick = 0;
 uint32_t last_tick2 = 0;
-
 extern uint8_t g_remote_sta;
 
 #define TOUCH_EVENT        (1 << 0)
@@ -109,6 +111,40 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
+osThreadId_t remoteTaskHandle;
+const osThreadAttr_t remoteTask_attributes = {
+    .name = "remoteTask",
+    .priority = (osPriority_t) osPriorityNormal,
+    .stack_size = 256 * 4
+};
+
+osThreadId_t dogTaskHandle;
+const osThreadAttr_t dogTask_attributes = {
+    .name = "dogTask",
+    .priority = (osPriority_t) osPriorityHigh,
+    .stack_size = 256 * 4
+};
+
+osThreadId_t infoTaskHandle;
+const osThreadAttr_t infoTask_attributes = {
+    .name = "infoTask",
+    .priority = (osPriority_t) osPriorityNormal,
+    .stack_size = 256 * 4
+};
+
+osThreadId_t touchTaskHandle;
+const osThreadAttr_t touchTask_attributes = {
+    .name = "touchTask",
+    .priority = (osPriority_t) osPriorityNormal,
+    .stack_size = 256 * 4
+};
+
+osThreadId_t uartTaskHandle;
+const osThreadAttr_t uartTask_attributes = {
+    .name = "uartTask",
+    .priority = (osPriority_t) osPriorityNormal,
+    .stack_size = 256 * 4
+};
 
 uint8_t tx_e3 = 0xE3;
 uint8_t tx_e4 = 0xE4;
@@ -118,7 +154,7 @@ volatile uint8_t tx_request_flag = 0;
 volatile uint8_t uart_rx_flag = 0;
 
 uint8_t close_red = 0;  // 改为全局变量
-
+char strrand[16];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -136,11 +172,21 @@ static void MX_TIM2_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
+void WHIRLPOOL_add(const unsigned char * source, unsigned __int32 sourceBytes, WHIRLPOOL_CTX * const ctx);
+void WHIRLPOOL_finalize(WHIRLPOOL_CTX* const ctx, unsigned char * result);
+void WHIRLPOOL_init(WHIRLPOOL_CTX* const ctx);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void generate_random_string(char *buf, int len) {
+    for (int i = 0; i < len; i++) {
+        buf[i] = (rand() % (0x7E - 0x21 + 1)) + 0x21; // 可打印ASCII
+    }
+    buf[len] = '\0'; // 字符串结束符
+}
+
 // 设置日期和时�???
 void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second)
 {
@@ -241,10 +287,219 @@ void delay_ms(uint16_t nms)
     delay_us((uint32_t)(nms * 1000));
 }
 
+void rtc_write_bkr(uint32_t bkrx, uint16_t data)
+{
+    HAL_PWR_EnableBkUpAccess();
+    HAL_RTCEx_BKUPWrite(&hrtc, bkrx, data);
+}
+
+uint16_t rtc_read_bkr(uint32_t bkrx)
+{
+	HAL_PWR_EnableBkUpAccess();
+    uint32_t temp = 0;
+    temp = HAL_RTCEx_BKUPRead(&hrtc, bkrx);
+    return (uint16_t)temp;
+}
+unsigned char hash_output[64];
+int main2() {
+    WHIRLPOOL_CTX ctx;
+    char str1[29] = {0}; char str2[29] = {0}; char str3[29] = {0}; char str4[29] = {0}; char str5[17] = {0};
+
+    // Initial Whirlpool CTX
+    WHIRLPOOL_init(&ctx);
+
+    // Input Process
+    WHIRLPOOL_add((const unsigned char *)strrand, strlen(strrand), &ctx);
+    lcd_show_string(170, 10, 240, 16, 16, strrand, RED);
+
+    // Compute value
+    WHIRLPOOL_finalize(&ctx, hash_output);
+    split_hash_to_hex_strings(hash_output, str1, str2, str3, str4, str5);
+    lcd_show_string(5, 30, 240, 16, 16, str1, RED);
+    lcd_show_string(5, 50, 240, 16, 16, str2, RED);
+    lcd_show_string(5, 70, 240, 16, 16, str3, RED);
+    lcd_show_string(5, 90, 240, 16, 16, str4, RED);
+    lcd_show_string(5, 110, 240, 16, 16, str5, RED);
+
+    return 0;
+}
+void split_hash_to_hex_strings(const unsigned char *hash_output, char *str1, char *str2, char *str3, char *str4, char *str5) {
+    for (int i = 0; i < 14; i++) {
+        sprintf(&str1[i * 2], "%02x", hash_output[i]);
+    }
+    for (int i = 0; i < 14; i++) {
+        sprintf(&str2[i * 2], "%02x", hash_output[i + 14]);
+    }
+    for (int i = 0; i < 14; i++) {
+        sprintf(&str3[i * 2], "%02x", hash_output[i + 28]);
+    }
+    for (int i = 0; i < 14; i++) {
+        sprintf(&str4[i * 2], "%02x", hash_output[i + 42]);
+    }
+    for (int i = 0; i < 8; i++) {
+        sprintf(&str5[i * 2], "%02x", hash_output[i + 56]);
+    }
+
+}
+
 //void HAL_Delay(uint32_t Delay)
 //{
 //     delay_ms(Delay);
 //}
+void dogTask(void *argument){
+	for (;;){
+        HAL_IWDG_Refresh(&hiwdg);
+        osDelay(500);
+	}
+}
+void infoTask(void *argument){
+    uint8_t year, month, day, hour, minute, second;
+    short adcx;
+	for (;;){
+        Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
+        char datetime[25];
+        snprintf(datetime, sizeof(datetime),
+                 "%04d-%02d-%02d %02d:%02d:%02d",
+                 (int)year + 1970,
+                 (int)month,
+                 (int)day,
+                 (int)hour,
+                 (int)minute,
+                 (int)second);
+        lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
+        adcx = lsens_get_val();
+        lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
+        osDelay(333);
+	}
+}
+void touchTask(void *argument){
+	for (;;){
+        tp_dev.scan(0);
+
+        if (tp_dev.sta & TP_PRES_DOWN)
+        {
+            lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
+        }
+        osDelay(100);
+	}
+}
+void uartTask(void *argument){
+	for (;;){
+        if (tx_request_flag) {
+            tx_request_flag = 0;
+            HAL_UART_Transmit(&huart1, (uint8_t *)&tx_request_byte, 1, 100);
+        }
+        if (uart_rx_flag) {
+            uart_rx_flag = 0;
+            if (close_red == 0xCC) {
+                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_SET);
+            } else if (close_red == 0xDD) {
+                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
+            } else if (close_red == 0xEE){
+                lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
+            }
+            HAL_UART_Receive_IT(&huart1, &close_red, 1);
+        }
+
+        osDelay(50);
+	}
+}
+void RemoteTask(void *argument)
+{
+    uint8_t key;
+    int lastKey = 0;
+    uint8_t index = 0;
+    uint32_t lastKeyTime = 0;  // 记录最后一次按键时间
+    const uint32_t displayTimeout = 1000;  // 1秒超时(ms)
+
+    for(;;)
+    {
+    	uint32_t currentTime = osKernelGetTickCount();
+        key = remote_scan();  // 获取按键
+        if((currentTime - lastKeyTime) > displayTimeout)
+        {
+            lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+        }
+
+        if(key != 0 && lastKey == 0)  // 有按键输入
+        {
+        	lastKeyTime = currentTime;
+            const char *str = NULL;
+
+            switch(key)
+            {
+            	case 0:
+            		lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+            		break;
+                case 22:
+                	str = "1";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
+                	break;
+                case 25:
+                	str = "2";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED);
+                	break;
+                case 13:
+                	str = "3";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED);
+                	break;
+                case 12:
+                	str = "4";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 4 Pressed", RED);
+                	break;
+                case 24:
+                	str = "5";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 5 Pressed", RED);
+                	break;
+                case 94:
+                	str = "6";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 6 Pressed", RED);
+                	break;
+                case 8:
+                	str = "7";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 7 Pressed", RED);
+                	break;
+                case 28:
+                	str = "8";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 8 Pressed", RED);
+                	break;
+                case 90:
+                	str = "9";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 9 Pressed", RED);
+                	break;
+                case 66:
+                	str = "0";
+                    lcd_show_string(10, 10, 240, 16, 16, "Key 0 Pressed", RED);
+                	break;
+
+                case 64: // Enter 键
+                	strrand[index] = '\0';  // 结束字符串
+                	if (strrand[0] != '\0') main2();
+                    index = 0;  // 清空，准备下次输入
+                    break;
+
+                default:
+                	lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+                    break;
+            }
+
+            // 如果是数字键，并且未超过 12 位
+            if(str != NULL && index < 8)
+            {
+                strcpy(&strrand[index], str);  // 追加字符
+                index++;
+                strrand[index] = '\0';        // 保证结尾
+            }
+        }
+        if(key == 0)
+            lastKey = 0;      // 松开，准备下一次输入
+        else
+            lastKey = key;    // 仍在按
+
+        osDelay(20); // 适当延时，防抖/节省CPU
+    }
+}
+
 
 /* USER CODE END 0 */
 
@@ -256,6 +511,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	SCB->VTOR =  0x08020000;
     uint8_t lcd_id[12];
 
   /* USER CODE END 1 */
@@ -288,6 +544,8 @@ int main(void)
   MX_TIM4_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  //rtc_write_bkr(1, 17134);
+  uint16_t rtc1data = rtc_read_bkr(1);
   lcd_init();
   lsens_init();
   at24cxx_init();
@@ -301,9 +559,8 @@ int main(void)
   #define TEXT_SIZE2 sizeof(g_text_buf2) /* TEXT×Ö·û´®³¤¶È */
   uint8_t datatemp2[TEXT_SIZE2];
   uint32_t flashsize = 16 * 1024 * 1024;
-  uint16_t i = 0;
 
-  delay_init(72);
+  srand(TIM2->CNT);
   uint8_t year, month, day, hour, minute, second;
   Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
   if ((int)year < 1){
@@ -313,19 +570,19 @@ int main(void)
   g_point_color = BLUE;
   sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
   lcd_clear(BLUE);
-  lcd_show_string(10, 40, 240, 32, 32, "STM32F103ZET6", RED);
-  lcd_show_string(10, 80, 240, 24, 24, "Cunyuan Wang", RED);
-  lcd_show_string(10, 110, 240, 16, 16, "pingwcy@outlook.com", RED);
+  lcd_show_num(120, 10, rtc1data, 5, 16, YELLOW);
   lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
-  lcd_show_string(10, 150, 240, 16, 16, "LUT University, Lappeenranta", RED);
+  lcd_show_string(10, 150, 240, 16, 16, "Cunyuan Wang", RED);
   lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
   HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
   //at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
   HAL_IWDG_Refresh(&hiwdg);
+  //generate_random_string(strrand, 8);
 
   //lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
+  HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
   at24cxx_read(0, datatemp, TEXT_SIZE);
@@ -334,7 +591,7 @@ int main(void)
 
   HAL_IWDG_Refresh(&hiwdg);
 
-  sprintf((char *)datatemp2, "%s%d", (char *)g_text_buf2, i);
+  //sprintf((char *)datatemp2, "%s%d", (char *)g_text_buf2, i);
   //norflash_write((uint8_t *)datatemp2, flashsize - 100, TEXT_SIZE2);      /* ´Óµ¹ÊýµÚ100¸öµØÖ·´¦¿ªÊ¼,Ð´ÈëSIZE³¤¶ÈµÄÊý¾Ý */
   norflash_read(datatemp2, flashsize - 100, TEXT_SIZE2);
   lcd_show_string(10, 270, 200, 16, 16, "Data Readed From Flash Is:", BLUE);
@@ -372,6 +629,11 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  dogTaskHandle = osThreadNew(dogTask, NULL, &dogTask_attributes);
+  remoteTaskHandle = osThreadNew(RemoteTask, NULL, &remoteTask_attributes);
+  infoTaskHandle = osThreadNew(infoTask, NULL, &infoTask_attributes);
+  touchTaskHandle = osThreadNew(touchTask, NULL, &touchTask_attributes);
+  uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
 
   /* USER CODE END RTOS_THREADS */
 
@@ -388,8 +650,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -930,62 +1190,12 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
   /* Infinite loop */
-	  for(;;)
-	  {
-	        HAL_IWDG_Refresh(&hiwdg);
-
-		    uint8_t key;
 		    uint8_t year, month, day, hour, minute, second;
-		    int k = 0;
-		    short adcx;
 
 		    for(;;) // FreeRTOS 任务循环
 		    {
-		        HAL_IWDG_Refresh(&hiwdg);
-		        key = remote_scan();
-		        tp_dev.scan(0);
-
-		        if (key == 0){
-		            lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-		        }
-		        else if (key == 22){
-		            lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
-		        }
-		        else if (key == 25){
-		            lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED);
-		        }
-		        else if (key == 13){
-		            lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED);
-		        }
-		        else if (key == 69){
-		            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, !HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_0));
-		        }
-
-		        if (tp_dev.sta & TP_PRES_DOWN)
-		        {
-		            lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
-		        }
-
-		        uint32_t current_tick = HAL_GetTick();
-		        k++;
-
-		        if (tx_request_flag) {
-		            tx_request_flag = 0;
-		            HAL_UART_Transmit(&huart1, (uint8_t *)&tx_request_byte, 1, 100);
-		        }
-		        if (uart_rx_flag) {
-		            uart_rx_flag = 0;
-		            if (close_red == 0xCC) {
-		                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_SET);
-		            } else if (close_red == 0xDD) {
-		                HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
-		            } else if (close_red == 0xEE){
-		                lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
-		            }
-		            HAL_UART_Receive_IT(&huart1, &close_red, 1);
-		        }
-
 		        // LED 闪烁
+		        uint32_t current_tick = HAL_GetTick();
 		        if(led_mode == LED_BLINK) {
 		            int blink_int = 333;
 		            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
@@ -998,29 +1208,10 @@ void StartDefaultTask(void *argument)
 		                HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
 		            }
 		        }
-
-		        if (k == 20){
-		            k = 0;
-		            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-		            char datetime[25];
-		            snprintf(datetime, sizeof(datetime),
-		                     "%04d-%02d-%02d %02d:%02d:%02d",
-		                     (int)year + 1970,
-		                     (int)month,
-		                     (int)day,
-		                     (int)hour,
-		                     (int)minute,
-		                     (int)second);
-		            lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
-		            adcx = lsens_get_val();
-		            lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
 		        }
-
-		        osDelay(10); // FreeRTOS 任务延时代替 HAL_Delay
-		    }
-	  }
-	  /* USER CODE END 5 */
+		        osDelay(50); // FreeRTOS 任务延时代替 HAL_Delay
 }
+  /* USER CODE END 5 */
 
 /**
   * @brief  Period elapsed callback in non blocking mode
