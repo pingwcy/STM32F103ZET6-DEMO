@@ -115,7 +115,7 @@ osThreadId_t remoteTaskHandle;
 const osThreadAttr_t remoteTask_attributes = {
     .name = "remoteTask",
     .priority = (osPriority_t) osPriorityNormal,
-    .stack_size = 256 * 4
+    .stack_size = 256 * 16
 };
 
 osThreadId_t dogTaskHandle;
@@ -310,17 +310,18 @@ int main2() {
 
     // Input Process
     WHIRLPOOL_add((const unsigned char *)strrand, strlen(strrand), &ctx);
-    lcd_show_string(170, 10, 240, 16, 16, strrand, RED);
 
     // Compute value
     WHIRLPOOL_finalize(&ctx, hash_output);
     split_hash_to_hex_strings(hash_output, str1, str2, str3, str4, str5);
+    taskENTER_CRITICAL();
+    lcd_show_string(170, 10, 240, 16, 16, strrand, RED);
     lcd_show_string(5, 30, 240, 16, 16, str1, RED);
     lcd_show_string(5, 50, 240, 16, 16, str2, RED);
     lcd_show_string(5, 70, 240, 16, 16, str3, RED);
     lcd_show_string(5, 90, 240, 16, 16, str4, RED);
     lcd_show_string(5, 110, 240, 16, 16, str5, RED);
-
+    taskEXIT_CRITICAL();
     return 0;
 }
 void split_hash_to_hex_strings(const unsigned char *hash_output, char *str1, char *str2, char *str3, char *str4, char *str5) {
@@ -366,9 +367,11 @@ void infoTask(void *argument){
                  (int)hour,
                  (int)minute,
                  (int)second);
-        lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
         adcx = lsens_get_val();
+        taskENTER_CRITICAL();
+        lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
         lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
+        taskEXIT_CRITICAL();
         osDelay(333);
 	}
 }
@@ -378,7 +381,9 @@ void touchTask(void *argument){
 
         if (tp_dev.sta & TP_PRES_DOWN)
         {
+        	taskENTER_CRITICAL();
             lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
+            taskEXIT_CRITICAL();
         }
         osDelay(100);
 	}
@@ -396,7 +401,9 @@ void uartTask(void *argument){
             } else if (close_red == 0xDD) {
                 HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET);
             } else if (close_red == 0xEE){
+            	taskENTER_CRITICAL();
                 lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
+                taskEXIT_CRITICAL();
             }
             HAL_UART_Receive_IT(&huart1, &close_red, 1);
         }
@@ -425,7 +432,7 @@ void RemoteTask(void *argument)
         {
         	lastKeyTime = currentTime;
             const char *str = NULL;
-
+            taskENTER_CRITICAL();
             switch(key)
             {
             	case 0:
@@ -482,7 +489,7 @@ void RemoteTask(void *argument)
                 	lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
                     break;
             }
-
+            taskEXIT_CRITICAL();
             // 如果是数字键，并且未超过 12 位
             if(str != NULL && index < 8)
             {
