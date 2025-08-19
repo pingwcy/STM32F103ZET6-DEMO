@@ -81,6 +81,9 @@ extern const osThreadAttr_t touchTask_attributes ;
 extern osThreadId_t uartTaskHandle;
 extern const osThreadAttr_t uartTask_attributes;
 
+extern osThreadId_t saveTaskHandle;
+extern const osThreadAttr_t saveTask_attributes;
+
 extern uint8_t tx_e3;
 extern uint8_t tx_e4;
 extern uint8_t tx_a0;
@@ -99,7 +102,7 @@ extern void uartTask(void *argument);
 extern void RemoteTask(void *argument);
 extern void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second);
 extern void Get_RTC_DateTime(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second);
-
+extern void saveTask(void *argument);
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -347,6 +350,7 @@ int main(void)
   infoTaskHandle = osThreadNew(infoTask, NULL, &infoTask_attributes);
   touchTaskHandle = osThreadNew(touchTask, NULL, &touchTask_attributes);
   uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
+  saveTaskHandle = osThreadNew(saveTask, NULL, &saveTask_attributes);
 
   /* USER CODE END RTOS_THREADS */
 

@@ -26,7 +26,6 @@
 /* USER CODE BEGIN Includes */
 #include "cmsis_os.h"
 #include "fatfs.h"
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -69,6 +68,13 @@ const osThreadAttr_t uartTask_attributes = {
     .name = "uartTask",
     .priority = (osPriority_t) osPriorityNormal,
     .stack_size = 256 * 4
+};
+
+osThreadId_t saveTaskHandle;
+const osThreadAttr_t saveTask_attributes = {
+    .name = "saveTask",
+    .priority = (osPriority_t) osPriorityHigh,
+    .stack_size = 128 * 4
 };
 
 uint8_t tx_e3 = 0xE3;
@@ -235,6 +241,14 @@ void dogTask(void *argument){
         HAL_IWDG_Refresh(&hiwdg);
         osDelay(500);
 	}
+}
+
+void saveTask(void *argument){
+	for (;;){
+		norflash_sync();
+		osDelay(30000);
+	}
+
 }
 void infoTask(void *argument){
     uint8_t year, month, day, hour, minute, second;
