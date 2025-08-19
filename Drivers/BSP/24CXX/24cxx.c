@@ -24,7 +24,9 @@
 
 #include "../../BSP/IIC/myiic.h"
 #include "../../BSP/24CXX/24cxx.h"
-#include "../../SYSTEM/delay/delay.h"
+extern void delay_us(uint32_t nus);
+extern void delay_ms(uint16_t nms);
+
 
 
 /**

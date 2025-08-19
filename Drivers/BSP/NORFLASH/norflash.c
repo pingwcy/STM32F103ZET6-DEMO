@@ -23,7 +23,8 @@
  */
 
 #include "../../BSP/SPI/spi.h"
-#include "../../SYSTEM/delay/delay.h"
+extern void delay_us(uint32_t nus);
+extern void delay_ms(uint16_t nms);
 #include "../../BSP/NORFLASH/norflash.h"
 
 

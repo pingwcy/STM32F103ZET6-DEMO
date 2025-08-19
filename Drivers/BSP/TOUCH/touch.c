@@ -32,11 +32,11 @@
 #include "stdlib.h"
 #include "../../BSP/LCD/lcd.h"
 #include "../../BSP/TOUCH/touch.h"
-#include "../../SYSTEM/delay/delay.h"
+extern void delay_us(uint32_t nus);
+extern void delay_ms(uint16_t nms);
 
 
-_m_tp_dev tp_dev =
-{
+_m_tp_dev tp_dev ={
     tp_init,
     tp_scan,
     tp_adjust,

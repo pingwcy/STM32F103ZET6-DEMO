@@ -88,10 +88,10 @@ extern uint16_t norflash_TYPE;      /* ����FLASHоƬ�ͺ� */
 #define FLASH_ExitQPIMode           0xFF
 
 /* ��̬���� */
-static void norflash_wait_busy(void);               /* �ȴ����� */
-static void norflash_send_address(uint32_t address);/* ���͵�ַ */
-static void norflash_write_page(uint8_t *pbuf, uint32_t addr, uint16_t datalen);    /* д��page */
-static void norflash_write_nocheck(uint8_t *pbuf, uint32_t addr, uint16_t datalen); /* дflash,�������� */
+//static void norflash_wait_busy(void);               /* �ȴ����� */
+//static void norflash_send_address(uint32_t address);/* ���͵�ַ */
+//static void norflash_write_page(uint8_t *pbuf, uint32_t addr, uint16_t datalen);    /* д��page */
+//static void norflash_write_nocheck(uint8_t *pbuf, uint32_t addr, uint16_t datalen); /* дflash,�������� */
 
 /* ��ͨ���� */
 void norflash_init(void);                   /* ��ʼ��25QXX */

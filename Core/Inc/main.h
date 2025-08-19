@@ -31,6 +31,21 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "../../BSP/lcd/lcd.h"
+#include "stm32f1xx_hal.h"  // HAL库主头文件
+#include "../../BSP/TOUCH/touch.h"
+#include "../../BSP/remote/remote.h"
+#include "../../BSP/ADC/adc3.h"
+#include "../../BSP/LSENS/lsens.h"
+#include "../../BSP/NORFLASH/norflash.h"
+#include "../../BSP/24CXX/24cxx.h"
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "event_groups.h"
+#include "../../Crypto/whirlpool/Whirlpool.h"
+#include <stdlib.h>
+#include <time.h>
+#include <stdio.h>
 
 /* USER CODE END Includes */
 

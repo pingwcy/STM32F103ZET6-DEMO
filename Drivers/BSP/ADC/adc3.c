@@ -1,72 +1,11 @@
-/**
- ****************************************************************************************************
- * @file        adc3.c
- * @author      ����ԭ���Ŷ�(ALIENTEK)
- * @version     V1.1
- * @date        2020-04-24
- * @brief       ADC3 ��������
- * @license     Copyright (c) 2020-2032, ������������ӿƼ����޹�˾
- ****************************************************************************************************
- * @attention
- *
- * ʵ��ƽ̨:����ԭ�� STM32F103������
- * ������Ƶ:www.yuanzige.com
- * ������̳:www.openedv.com
- * ��˾��ַ:www.alientek.com
- * �����ַ:openedv.taobao.com
- *
- * �޸�˵��
- * V1.0 20200424
- * ��һ�η���
- * V1.1 20200424
- * 1, �޸�adc3_init, ��Ӷ�ADC3_CHY_GPIO��صĳ�ʼ��
- * 2, ��ͷ�ļ�������� ADC3_CHY ��غ궨��
- ****************************************************************************************************
- */
-
 #include "./adc3.h"
-#include "../../SYSTEM/delay/delay.h"
+extern void delay_us(uint32_t nus);
+extern void delay_ms(uint16_t nms);
 
 
-ADC_HandleTypeDef g_adc3_handle;         /* ADC��� */
 
-/**
- * @brief       ADC3��ʼ������
- *   @note      ������֧��ADC1/ADC2����ͨ��, ���ǲ�֧��ADC3
- *              ����ʹ��12λ����, ADC����ʱ��=12M, ת��ʱ��Ϊ: �������� + 12.5��ADC����
- *              ��������������: 239.5, ��ת��ʱ�� = 252 ��ADC���� = 21us
- * @param       ��
- * @retval      ��
- */
-void adc3_init(void)
-{
-    GPIO_InitTypeDef gpio_init_struct;
-    RCC_PeriphCLKInitTypeDef adc_clk_init = {0};
+extern ADC_HandleTypeDef hadc3;         /* ADC��� */
 
-    ADC3_CHY_GPIO_CLK_ENABLE();                                /* IO��ʱ��ʹ�� */
-    ADC3_CHY_CLK_ENABLE();                                     /* ADCʱ��ʹ�� */
-
-    adc_clk_init.PeriphClockSelection = RCC_PERIPHCLK_ADC;     /* ADC����ʱ�� */
-    adc_clk_init.AdcClockSelection = RCC_ADCPCLK2_DIV6;        /* ��Ƶ����6ʱ��Ϊ72M/6=12MHz */
-    HAL_RCCEx_PeriphCLKConfig(&adc_clk_init);                  /* ����ADCʱ�� */
-
-    /* ����AD�ɼ�ͨ����ӦIO���Ź���ģʽ */
-    gpio_init_struct.Pin = ADC3_CHY_GPIO_PIN;                  /* ADCͨ����Ӧ��IO���� */
-    gpio_init_struct.Mode = GPIO_MODE_ANALOG;                  /* ģ�� */
-    HAL_GPIO_Init(ADC3_CHY_GPIO_PORT, &gpio_init_struct);
-
-    g_adc3_handle.Instance = ADC_ADCX;                         /* ѡ���ĸ�ADC */
-    g_adc3_handle.Init.DataAlign = ADC_DATAALIGN_RIGHT;        /* ���ݶ��뷽ʽ���Ҷ��� */
-    g_adc3_handle.Init.ScanConvMode = ADC_SCAN_DISABLE;        /* ��ɨ��ģʽ�����õ�һ��ͨ�� */
-    g_adc3_handle.Init.ContinuousConvMode = DISABLE;           /* �ر�����ת��ģʽ */
-    g_adc3_handle.Init.NbrOfConversion = 1;                    /* 1��ת���ڹ��������� Ҳ����ֻת����������1 */
-    g_adc3_handle.Init.DiscontinuousConvMode = DISABLE;        /* ��ֹ����ͨ������ģʽ */
-    g_adc3_handle.Init.NbrOfDiscConversion = 0;                /* ���ü��ģʽ�Ĺ���ͨ����������ֹ����ͨ������ģʽ�󣬴˲������� */
-    g_adc3_handle.Init.ExternalTrigConv = ADC_SOFTWARE_START;  /* ����ת����ʽ��������� */
-    HAL_ADC_Init(&g_adc3_handle);                              /* ��ʼ�� */
-
-    HAL_ADCEx_Calibration_Start(&g_adc3_handle);               /* У׼ADC */
-}
 
 /**
  * @brief       ����ADCͨ������ʱ��
@@ -101,11 +40,11 @@ void adc3_channel_set(ADC_HandleTypeDef *adc_handle, uint32_t ch, uint32_t rank,
  */
 uint32_t adc3_get_result(uint32_t ch)
 {
-    adc3_channel_set(&g_adc3_handle , ch, ADC_REGULAR_RANK_1, ADC_SAMPLETIME_239CYCLES_5);    /* ����ͨ�������кͲ���ʱ�� */
+    adc3_channel_set(&hadc3 , ch, ADC_REGULAR_RANK_1, ADC_SAMPLETIME_239CYCLES_5);    /* ����ͨ�������кͲ���ʱ�� */
     
-    HAL_ADC_Start(&g_adc3_handle);                            /* ����ADC */
-    HAL_ADC_PollForConversion(&g_adc3_handle, 10);            /* ��ѯת�� */
-    return (uint16_t)HAL_ADC_GetValue(&g_adc3_handle);        /* �������һ��ADC1�������ת����� */
+    HAL_ADC_Start(&hadc3);                            /* ����ADC */
+    HAL_ADC_PollForConversion(&hadc3, 10);            /* ��ѯת�� */
+    return (uint16_t)HAL_ADC_GetValue(&hadc3);        /* �������һ��ADC1�������ת����� */
     
 }
 

@@ -1,7 +1,8 @@
 #include "stdlib.h"
 #include "../LCD/lcd.h"
 #include "../LCD/lcdfont.h"
-#include "../../SYSTEM/delay/delay.h"
+extern void delay_us(uint32_t nus);
+extern void delay_ms(uint16_t nms);
 
 /**
  * @brief       ST7789 �Ĵ�����ʼ������
@@ -2375,7 +2376,7 @@ void lcd_init(void)
      * ����(������f_putc����), ����, �����ʼ������1, �������ε�����
      * ���� printf ��� !!!!!!!
      */
-    printf("LCD ID:%x\r\n", lcddev.id); /* ��ӡLCD ID */
+    //printf("LCD ID:%x\r\n", lcddev.id); /* ��ӡLCD ID */
 
     if (lcddev.id == 0X7789)
     {
