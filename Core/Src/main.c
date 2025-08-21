@@ -26,7 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include "FreeRTOS.h"
 #include "task.h"
-
+#include "cmsis_os.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -89,13 +89,13 @@ extern const osThreadAttr_t saveTask_attributes;
 extern osThreadId_t monitorTaskHandle;
 extern const osThreadAttr_t monitorTask_attributes;
 
+extern osThreadId_t idleTaskHandle;
+extern const osThreadAttr_t idleTask_attributes;
+
 extern uint8_t tx_e3;
 extern uint8_t tx_e4;
 extern uint8_t tx_a0;
 extern volatile uint8_t tx_request_byte;
-extern volatile uint8_t tx_request_flag;
-extern volatile uint8_t uart_rx_flag;
-extern volatile uint8_t remoteflag;
 
 extern uint8_t close_red;  // 改为全局变量
 extern char strrand[16];
@@ -109,10 +109,10 @@ extern void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day, uint8_t h
 extern void Get_RTC_DateTime(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second);
 extern void saveTask(void *argument);
 extern void monitorTask(void *argument);
-
-extern uint8_t _end;
-extern uint8_t _estack;
-extern uint8_t _Min_Stack_Size;
+extern void IdleSimTask(void *argument);
+extern osMessageQueueId_t uartQueue;
+extern osSemaphoreId_t remoteSemaphore;
+extern osSemaphoreId_t touchSem;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -199,22 +199,51 @@ void generate_random_string(char *buf, int len) {
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+    static uint32_t last_debounce_time = 0;
     uint32_t current_tick = HAL_GetTick();
-    if((current_tick - last_debounce_time) > 50) {
-        if(GPIO_Pin == BTN_PIN1) {
-            tx_request_byte = 0xE3; tx_request_flag = 1;
-            if(led_mode != LED_ON) { led_mode = LED_ON; HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);}
-            else { led_mode = LED_OFF; HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET); }
+
+    // 处理触摸屏 PEN（不防抖）
+    if(GPIO_Pin == GPIO_PIN_10)  // PF10
+    {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        osSemaphoreRelease(touchSem);   // 通知任务去处理触摸
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        return; // 触摸屏处理完成，直接返回
+    }
+
+    // 处理按钮（带防抖）
+    if((current_tick - last_debounce_time) > 50)  // 防抖
+    {
+        last_debounce_time = current_tick;
+
+        if(GPIO_Pin == BTN_PIN1)
+        {
+            uart_msg_t msg = {1, 0xE3}; // type=1表示TX
+            osMessageQueuePut(uartQueue, &msg, 0, 0);
+
+            if(led_mode != LED_ON)
+            {
+                led_mode = LED_ON;
+                HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+            }
+            else
+            {
+                led_mode = LED_OFF;
+                HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+            }
         }
-        else if(GPIO_Pin == BTN_PIN2) {
-            tx_request_byte = 0xE4; tx_request_flag = 1;
+        else if(GPIO_Pin == BTN_PIN2)
+        {
+            uart_msg_t msg = {1, 0xE4};
+            osMessageQueuePut(uartQueue, &msg, 0, 0);
             led_mode = LED_BLINK;
         }
-        else if(GPIO_Pin == BTN_PIN0) {
-            tx_request_byte = 0xA0; tx_request_flag = 1;
+        else if(GPIO_Pin == BTN_PIN0)
+        {
+            uart_msg_t msg = {1, 0xA0};
+            osMessageQueuePut(uartQueue, &msg, 0, 0);
             HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
         }
-        last_debounce_time = current_tick;
     }
 }
 void USART1_IRQHandler(void)
@@ -226,7 +255,9 @@ void USART1_IRQHandler(void)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1) {
-        uart_rx_flag = 1;
+        uart_msg_t msg = {0, close_red}; // type=0表示RX
+        osMessageQueuePut(uartQueue, &msg, 0, 0);
+        HAL_UART_Receive_IT(&huart1, &close_red, 1);
     }
 }
 
@@ -301,12 +332,8 @@ int main(void)
   uint8_t datatemp[TEXT_SIZE];
 
   //srand(TIM2->CNT);
-  uint8_t year, month, day, hour, minute, second;
-  Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-  if ((int)year < 1){
-	  Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
-  }
-  HAL_UART_Receive_IT(&huart1, &close_red, 1);
+  Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
+
   g_point_color = BLUE;
   sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
   lcd_clear(BLUE);
@@ -320,7 +347,6 @@ int main(void)
 
   //lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
 
-  //lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
   at24cxx_read(0, datatemp, TEXT_SIZE);
   lcd_show_string(10, 230, 200, 16, 16, "EEPROM Data Readed Is:", RED);
   lcd_show_string(10, 250, 200, 16, 16, (char *)datatemp, RED);
@@ -339,6 +365,8 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
+  remoteSemaphore = osSemaphoreNew(1, 0, NULL);
+  touchSem = osSemaphoreNew(1, 0, NULL);
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
@@ -347,6 +375,8 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+  uartQueue = osMessageQueueNew(10, sizeof(uart_msg_t), NULL);
+
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -362,6 +392,8 @@ int main(void)
   uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
   saveTaskHandle = osThreadNew(saveTask, NULL, &saveTask_attributes);
   monitorTaskHandle = osThreadNew(monitorTask, NULL, &monitorTask_attributes);
+  //idleTaskHandle = osThreadNew(IdleSimTask, NULL, &monitorTask_attributes);
+
 
   /* USER CODE END RTOS_THREADS */
 
@@ -862,6 +894,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : PF10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
   /*Configure GPIO pin : PA0 */
   GPIO_InitStruct.Pin = GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -884,6 +922,9 @@ static void MX_GPIO_Init(void)
 
   HAL_NVIC_SetPriority(EXTI4_IRQn, 8, 0);
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1020,7 +1061,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 1 */
   if (htim->Instance == TIM4)
   {
-	  remoteflag = 1;
       if (g_remote_sta & 0x80)      /* �ϴ������ݱ����յ��� */
       {
           g_remote_sta &= ~0X10;    /* ȡ���������Ѿ��������� */
@@ -1028,6 +1068,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
           if ((g_remote_sta & 0X0F) == 0X00)
           {
               g_remote_sta |= 1 << 6; /* ����Ѿ����һ�ΰ����ļ�ֵ��Ϣ�ɼ� */
+              osSemaphoreRelease(remoteSemaphore);
+
           }
 
           if ((g_remote_sta & 0X0F) < 14)

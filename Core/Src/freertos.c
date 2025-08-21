@@ -86,13 +86,25 @@ const osThreadAttr_t monitorTask_attributes = {
     .stack_size = 256 * 4 // 512字节，足够它运行
 };
 
+osThreadId_t idleTaskHandle;
+const osThreadAttr_t idleTask_attributes = {
+	    .name = "IdleSimTask",
+	    .priority = (osPriority_t) osPriorityLow, // 低优先级，不影响关键任务
+	    .stack_size = 128 * 4 // 512字节，足够它运行
+	};;
+
 uint8_t tx_e3 = 0xE3;
 uint8_t tx_e4 = 0xE4;
 uint8_t tx_a0 = 0xA0;
+
 volatile uint8_t tx_request_byte = 0;
-volatile uint8_t tx_request_flag = 0;
-volatile uint8_t uart_rx_flag = 0;
-volatile uint8_t remoteflag = 0;
+
+
+osMessageQueueId_t uartQueue;
+osSemaphoreId_t remoteSemaphore;
+osSemaphoreId_t touchSem;
+
+
 FATFS fs;     // 文件系统对象
 FIL fil;      // 文件对象
 DIR dir;      // 目录对象
@@ -133,6 +145,13 @@ extern SRAM_HandleTypeDef hsram1;
 
 extern osThreadId_t defaultTaskHandle;
 extern const osThreadAttr_t defaultTask_attributes;
+
+
+uart_msg_t msg;
+volatile uint32_t idleTicks = 0;     // 空闲钩子计数
+volatile uint32_t cpuUsage = 0;      // CPU 使用率百分比
+const uint32_t idleTicksMaxPer10s = 1000000; // 10秒空闲计数最大值（需实验调整）
+
 /* USER CODE END Variables */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,18 +165,10 @@ void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
 void vApplicationMallocFailedHook(void);
 
 /* USER CODE BEGIN 2 */
-void vApplicationIdleHook( void )
+void vApplicationIdleHook(void) __attribute__((noinline));
+void vApplicationIdleHook(void)
 {
-
-   /* vApplicationIdleHook() will only be called if configUSE_IDLE_HOOK is set
-   to 1 in FreeRTOSConfig.h. It will be called on each iteration of the idle
-   task. It is essential that code added to this hook function never attempts
-   to block in any way (for example, call xQueueReceive() with a block time
-   specified, or call vTaskDelay()). If the application makes use of the
-   vTaskDelete() API function (as this demo application does) then it is also
-   important that vApplicationIdleHook() is permitted to return to its calling
-   function, because it is the responsibility of the idle task to clean up
-   memory allocated by the kernel to any task that has since been deleted. */
+	idleTicks++;
 }
 /* USER CODE END 2 */
 
@@ -193,6 +204,25 @@ void vApplicationMallocFailedHook(void)
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+void IdleSimTask(void *argument)
+{
+	uint32_t i = 1;
+	TickType_t now_ticks = xTaskGetTickCount();
+	uint32_t start_s = now_ticks * portTICK_PERIOD_MS /1000;
+	uint32_t end_s;
+    for (;;)
+    {
+    	TickType_t end_ticks = xTaskGetTickCount();
+    	uint32_t end_s = end_ticks * portTICK_PERIOD_MS /1000;
+
+    	uint32_t errsnu = end_s - start_s;
+
+    	lcd_show_xnum(190, 170, i * 100U / errsnu, 3, 16, 0, BLUE);
+    	i++;
+        osDelay(1000);         // 延时1ms，避免完全占CPU
+    }
+}
+
 void split_hash_to_hex_strings(unsigned char *hash_output, char *str1, char *str2, char *str3, char *str4, char *str5) {
     for (int i = 0; i < 14; i++) {
         sprintf(&str1[i * 2], "%02x", hash_output[i]);
@@ -353,252 +383,208 @@ void monitorTask(void *argument)
         display_ram_info();
 
 
-        osDelay(5000); // 每秒更新一次
+        osDelay(5000); // 5秒更新一次
     }
 }
 void dogTask(void *argument){
 	for (;;){
         HAL_IWDG_Refresh(&hiwdg);
-        osDelay(500);
+        osDelay(1000);
 	}
 }
 
 void saveTask(void *argument){
 	for (;;){
 		norflash_sync();
-		osDelay(30000);
+		osDelay(60000);
 	}
 
 }
-void infoTask(void *argument){
+void infoTask(void *argument)
+{
     uint8_t year, month, day, hour, minute, second;
-    uint8_t i = 0;
     uint16_t adcValue = 0;
     uint32_t cpu_freq = 0;
     float vref = 3.3f;
     float vsense, temperature;
     short adcx;
-    char str[12];
-    res = f_mount(&fs, "", 1);  // 挂载到逻辑驱动器 0:，立即挂载
-    if (res == FR_OK) {
-    	taskENTER_CRITICAL();
-        lcd_show_string(10, 270, 200, 16, 16, "FATFS mount OK.", BLUE);
-        taskEXIT_CRITICAL();
-    } else {
-    	taskENTER_CRITICAL();
-        lcd_show_string(10, 270, 200, 16, 16, "FATFS mount failed", BLUE);
-        taskEXIT_CRITICAL();
+    char str[12] = "0.00";
+    char datetime[25] = {0};
 
-    }
+    // 初始化显示
+    lcd_show_string(10, 170, 240, 16, 16, "----/--/-- --:--:--", RED);
+    lcd_show_string(150, 190, 240, 16, 16, str, BLUE);
+    lcd_show_xnum(90, 190, 0, 3, 16, 0, BLUE);
+    lcd_show_xnum(200, 190, 0, 3, 16, 0, BLUE);
 
-    char file_list[256];   // 最终拼好的字符串
-    UINT offset = 0;       // 当前写入位置
+    TickType_t lastRtcUpdate = 0;
+    TickType_t lastTempUpdate = 0;
+    TickType_t lastCpuUpdate = 0;
+    uint32_t lastIdleTicks = 0;
 
-    file_list[0] = '\0';   // 先置空字符串
+    for (;;)
+    {
+        TickType_t currentTime = osKernelGetTickCount();
 
-    res = f_opendir(&dir, "/");  // 打开根目录
-    if (res == FR_OK) {
-        for (;;) {
-            res = f_readdir(&dir, &fno);  // 逐个读目录项
-            if (res != FR_OK || fno.fname[0] == 0) break;  // 读完
-
-            // 将文件名拼接到 file_list
-            int n = snprintf(&file_list[offset],
-                             sizeof(file_list) - offset,
-                             "%s ", fno.fname);
-            if (n < 0 || n >= (int)(sizeof(file_list) - offset)) {
-                // 防止溢出
-                break;
-            }
-            offset += n;
-        }
-        f_closedir(&dir);
-    	taskENTER_CRITICAL();
-        lcd_show_string(10, 290, 200, 16, 16, file_list, BLUE);
-        taskEXIT_CRITICAL();
-    } else {
-    	taskENTER_CRITICAL();
-        lcd_show_string(10, 290, 200, 16, 16, "Open root dir failed", BLUE);
-        taskEXIT_CRITICAL();
-    }
-
-
-	for (;;){
-		i++;
-        Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-        char datetime[25];
-        snprintf(datetime, sizeof(datetime),
-                 "%04d-%02d-%02d %02d:%02d:%02d",
-                 (int)year + 1970,
-                 (int)month,
-                 (int)day,
-                 (int)hour,
-                 (int)minute,
-                 (int)second);
+        // 1. 实时更新光敏传感器（每次循环）
         adcx = lsens_get_val();
-        if (i==10){
-        	i = 0;
-        HAL_ADC_Start(&hadc1);
-        if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {
-            adcValue = HAL_ADC_GetValue(&hadc1);
-            vsense = (adcValue * vref) / 4095.0f;
-            temperature = ((1.43f - vsense) / 0.0043f) + 25.0f;
-            sprintf(str, "%.2f", temperature);
-        }
-        cpu_freq = HAL_RCC_GetSysClockFreq();
-
-        }
-        taskENTER_CRITICAL();
-        lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
-        lcd_show_string(150, 190, 240, 16, 16, str, BLUE);
         lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
-        lcd_show_xnum(200, 190, cpu_freq / 1000000, 3, 16, 0, BLUE);
 
-        taskEXIT_CRITICAL();
-        osDelay(333);
-	}
-}
-void touchTask(void *argument){
-	for (;;){
-        tp_dev.scan(0);
-
-        if (tp_dev.sta & TP_PRES_DOWN)
+        // 2. 每秒更新RTC时间
+        if (currentTime - lastRtcUpdate >= 1000)
         {
-        	tp_draw_big_point(tp_dev.x[0], tp_dev.y[0], RED);
-        	taskENTER_CRITICAL();
-            lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
-            taskEXIT_CRITICAL();
-            if (tp_dev.x[0] >10 && tp_dev.x[0] < 200 && tp_dev.y[0] > 200 && tp_dev.y[0] < 230){
-                lcd_show_string(10, 210, 200, 16, 16, "Remove Status!!", RED);
-            }
-        }
-        osDelay(100);
-	}
-}
-void uartTask(void *argument){
-	for (;;){
-        if (tx_request_flag) {
-            tx_request_flag = 0;
-            HAL_UART_Transmit(&huart1, (uint8_t *)&tx_request_byte, 1, 100);
-        }
-        if (uart_rx_flag) {
-            uart_rx_flag = 0;
-            if (close_red == 0xCC) {
-                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-            } else if (close_red == 0xDD) {
-                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-            } else if (close_red == 0xEE){
-            	taskENTER_CRITICAL();
-                lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
-                taskEXIT_CRITICAL();
-            }
-            HAL_UART_Receive_IT(&huart1, &close_red, 1);
+            lastRtcUpdate = currentTime;
+            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
+            snprintf(datetime, sizeof(datetime), "%04d-%02d-%02d %02d:%02d:%02d",
+                    (int)year + 1970, (int)month, (int)day, (int)hour, (int)minute, (int)second);
+            lcd_show_string(10, 170, 240, 16, 16, datetime, RED);
         }
 
-        osDelay(150);
-	}
+        // 3. 每10秒更新温度
+        if (currentTime - lastTempUpdate >= 10000)
+        {
+            lastTempUpdate = currentTime;
+            HAL_ADC_Start(&hadc1);
+            if (HAL_ADC_PollForConversion(&hadc1, 5) == HAL_OK) {
+                adcValue = HAL_ADC_GetValue(&hadc1);
+                vsense = (adcValue * vref) / 4095.0f;
+                temperature = ((1.43f - vsense) / 0.0043f) + 25.0f;
+                snprintf(str, sizeof(str), "%.2f", temperature);
+                lcd_show_string(150, 190, 240, 16, 16, str, BLUE);
+            }
+        }
+
+        // 4. 每20秒更新CPU频率
+        if (currentTime - lastCpuUpdate >= 20000)
+        {
+        	lastCpuUpdate = currentTime;
+        	cpu_freq = HAL_RCC_GetSysClockFreq();
+        	lcd_show_xnum(200, 190, cpu_freq / 1000000, 3, 16, 0, BLUE);
+
+        }
+
+        osDelay(500);
+    }
+}
+
+void touchTask(void *argument)
+{
+    for(;;)
+    {
+        if(osSemaphoreAcquire(touchSem, osWaitForever) == osOK)
+        {
+            tp_dev.scan(0);
+
+            if(tp_dev.sta & TP_PRES_DOWN)
+            {
+                tp_draw_big_point(tp_dev.x[0], tp_dev.y[0], RED);
+
+                taskENTER_CRITICAL();
+                lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
+                taskEXIT_CRITICAL();
+
+                if(tp_dev.x[0] >10 && tp_dev.x[0] < 200 && tp_dev.y[0] > 200 && tp_dev.y[0] < 230)
+                {
+                    lcd_show_string(10, 210, 200, 16, 16, "Remove Status!!", RED);
+                }
+            }
+        }
+    }
+}
+void uartTask(void *argument)
+{
+    // 启动第一次接收
+    HAL_UART_Receive_IT(&huart1, &close_red, 1);
+
+    uart_msg_t msg;
+
+    for (;;)
+    {
+        // 等待消息
+        osMessageQueueGet(uartQueue, &msg, NULL, osWaitForever);
+
+        if (msg.type == 0) // RX数据
+        {
+            if (msg.data == 0xCC) {
+                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+            } else if (msg.data == 0xDD) {
+                HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+            } else if (msg.data == 0xEE) {
+                lcd_show_string(10, 210, 200, 16, 16, "Reverted!      ", RED);
+            }
+        }
+        else if (msg.type == 1) // TX请求
+        {
+            HAL_UART_Transmit(&huart1, &msg.data, 1, 100);
+        }
+    }
 }
 void RemoteTask(void *argument)
 {
-    uint8_t key;
-    int lastKey = 0;
+    uint8_t key, lastKey = 0;
     uint8_t index = 0;
-    uint32_t lastKeyTime = 0;  // 记录最后一次按键时间
-    const uint32_t displayTimeout = 1000;  // 1秒超时(ms)
+    uint8_t keyStableCount = 0;
+    const uint8_t DEBOUNCE_THRESHOLD = 2; // 连续检测次数阈值
 
     for(;;)
     {
-    	if (remoteflag == 1){
-    		remoteflag = 0;
-    	uint32_t currentTime = osKernelGetTickCount();
-        key = remote_scan();  // 获取按键
-        if((currentTime - lastKeyTime) > displayTimeout)
+        lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+
+        osSemaphoreAcquire(remoteSemaphore, osWaitForever);
+        key = remote_scan();
+
+        if(key == lastKey)
         {
-            taskENTER_CRITICAL();
-            lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-            taskEXIT_CRITICAL();
+            if(key != 0)
+                keyStableCount++;
+        }
+        else
+        {
+            keyStableCount = 0; // 按键变化，重置计数
         }
 
-        if(key != 0 && lastKey == 0)  // 有按键输入
+        if(keyStableCount >= DEBOUNCE_THRESHOLD)
         {
-        	lastKeyTime = currentTime;
+            // 按键稳定，处理一次
             const char *str = NULL;
             taskENTER_CRITICAL();
             switch(key)
             {
-            	case 0:
-            		lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-            		break;
-                case 22:
-                	str = "1";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED);
-                	break;
-                case 25:
-                	str = "2";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED);
-                	break;
-                case 13:
-                	str = "3";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED);
-                	break;
-                case 12:
-                	str = "4";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 4 Pressed", RED);
-                	break;
-                case 24:
-                	str = "5";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 5 Pressed", RED);
-                	break;
-                case 94:
-                	str = "6";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 6 Pressed", RED);
-                	break;
-                case 8:
-                	str = "7";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 7 Pressed", RED);
-                	break;
-                case 28:
-                	str = "8";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 8 Pressed", RED);
-                	break;
-                case 90:
-                	str = "9";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 9 Pressed", RED);
-                	break;
-                case 66:
-                	str = "0";
-                    lcd_show_string(10, 10, 240, 16, 16, "Key 0 Pressed", RED);
-                	break;
-
-                case 64: // Enter 键
-                	strrand[index] = '\0';  // 结束字符串
-                	if (strrand[0] != '\0') main2();
-                    index = 0;  // 清空，准备下次输入
+                case 22: str = "1"; lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED); break;
+                case 25: str = "2"; lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED); break;
+                case 13: str = "3"; lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED); break;
+                case 12: str = "4"; lcd_show_string(10, 10, 240, 16, 16, "Key 4 Pressed", RED); break;
+                case 24: str = "5"; lcd_show_string(10, 10, 240, 16, 16, "Key 5 Pressed", RED); break;
+                case 94: str = "6"; lcd_show_string(10, 10, 240, 16, 16, "Key 6 Pressed", RED); break;
+                case 8:  str = "7"; lcd_show_string(10, 10, 240, 16, 16, "Key 7 Pressed", RED); break;
+                case 28: str = "8"; lcd_show_string(10, 10, 240, 16, 16, "Key 8 Pressed", RED); break;
+                case 90: str = "9"; lcd_show_string(10, 10, 240, 16, 16, "Key 9 Pressed", RED); break;
+                case 66: str = "0"; lcd_show_string(10, 10, 240, 16, 16, "Key 0 Pressed", RED); break;
+                case 64: // Enter
+                    strrand[index] = '\0';
+                    if (strrand[0] != '\0') main2();
+                    index = 0;
                     break;
-
                 default:
-                	lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+                    lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
                     break;
             }
             taskEXIT_CRITICAL();
-            // 如果是数字键，并且未超过 12 位
+
+            // 如果是数字键，并且未超过 8 位
             if(str != NULL && index < 8)
             {
-                strcpy(&strrand[index], str);  // 追加字符
+                strcpy(&strrand[index], str);
                 index++;
-                strrand[index] = '\0';        // 保证结尾
+                strrand[index] = '\0';
             }
-        }
-        if(key == 0)
-            lastKey = 0;      // 松开，准备下一次输入
-        else
-            lastKey = key;    // 仍在按
-    	}
 
-        osDelay(150); // 适当延时，防抖/节省CPU
-        // 检查是否到达预定报告时间
+            keyStableCount = 0; // 只触发一次
+        }
+
+        lastKey = key;  // 更新上次按键状态
+        osDelay(500);    // 小延时，保证CPU不空转
     }
 }
-
 /* USER CODE END Application */
 

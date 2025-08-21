@@ -51,6 +51,10 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
+typedef struct {
+    uint8_t type; // 0: RX数据, 1: TX请求
+    uint8_t data;
+} uart_msg_t;
 
 /* USER CODE END ET */
 
