@@ -328,6 +328,46 @@ uint8_t tp_scan(uint8_t mode)
  *              1���ɹ���ȡ����
  */
 /* ��ʾ�ַ��� */
+void tp_save_adjust_data(void)
+{
+    uint8_t *p = (uint8_t *)&tp_dev.xfac;   /* Ö¸ÏòÊ×µØÖ· */
+
+    /* pÖ¸Ïòtp_dev.xfacµÄµØÖ·, p+4ÔòÊÇtp_dev.yfacµÄµØÖ·
+     * p+8ÔòÊÇtp_dev.xoffµÄµØÖ·,p+10,ÔòÊÇtp_dev.yoffµÄµØÖ·
+     * ×Ü¹²Õ¼ÓÃ12¸ö×Ö½Ú(4¸ö²ÎÊý)
+     * p+12ÓÃÓÚ´æ·Å±ê¼Çµç×è´¥ÃþÆÁÊÇ·ñÐ£×¼µÄÊý¾Ý(0X0A)
+     * Íùp[12]Ð´Èë0X0A. ±ê¼ÇÒÑ¾­Ð£×¼¹ý.
+     */
+    at24cxx_write(TP_SAVE_ADDR_BASE, p, 12);                /* ±£´æ12¸ö×Ö½ÚÊý¾Ý(xfac,yfac,xc,yc) */
+    at24cxx_write_one_byte(TP_SAVE_ADDR_BASE + 12, 0X0A);   /* ±£´æÐ£×¼Öµ */
+}
+
+/**
+ * @brief       »ñÈ¡±£´æÔÚEEPROMÀïÃæµÄÐ£×¼Öµ
+ * @param       ÎÞ
+ * @retval      0£¬»ñÈ¡Ê§°Ü£¬ÒªÖØÐÂÐ£×¼
+ *              1£¬³É¹¦»ñÈ¡Êý¾Ý
+ */
+uint8_t tp_get_adjust_data(void)
+{
+    uint8_t *p = (uint8_t *)&tp_dev.xfac;
+    uint8_t temp = 0;
+
+    /* ÓÉÓÚÎÒÃÇÊÇÖ±½ÓÖ¸Ïòtp_dev.xfacµØÖ·½øÐÐ±£´æµÄ, ¶ÁÈ¡µÄÊ±ºò,½«¶ÁÈ¡³öÀ´µÄÊý¾Ý
+     * Ð´ÈëÖ¸Ïòtp_dev.xfacµÄÊ×µØÖ·, ¾Í¿ÉÒÔ»¹Ô­Ð´Èë½øÈ¥µÄÖµ, ¶ø²»ÐèÒªÀí»á¾ßÌåµÄÊý
+     * ¾ÝÀàÐÍ. ´Ë·½·¨ÊÊÓÃÓÚ¸÷ÖÖÊý¾Ý(°üÀ¨½á¹¹Ìå)µÄ±£´æ/¶ÁÈ¡(°üÀ¨½á¹¹Ìå).
+     */
+    at24cxx_read(TP_SAVE_ADDR_BASE, p, 12);                 /* ¶ÁÈ¡12×Ö½ÚÊý¾Ý */
+    temp = at24cxx_read_one_byte(TP_SAVE_ADDR_BASE + 12);   /* ¶ÁÈ¡Ð£×¼×´Ì¬±ê¼Ç */
+
+    if (temp == 0X0A)
+    {
+        return 1;
+    }
+
+    return 0;
+}
+
 char *const TP_REMIND_MSG_TBL = "Please use the stylus click the cross on the screen.The cross will always move until the screen adjustment is completed.";
 
 /**
@@ -511,6 +551,19 @@ uint8_t tp_init(void)
         HAL_GPIO_Init(T_CS_GPIO_PORT, &gpio_init_struct);        /* ��ʼ��T_CS���� */
 
         tp_read_xy(&tp_dev.x[0], &tp_dev.y[0]); /* ��һ�ζ�ȡ��ʼ�� */
+        if (tp_get_adjust_data())
+        {
+            return 0;           /* ÒÑ¾­Ð£×¼ */
+        }
+        else                    /* Î´Ð£×¼? */
+        {
+            lcd_clear(WHITE);   /* ÇåÆÁ */
+            tp_adjust();        /* ÆÁÄ»Ð£×¼ */
+            tp_save_adjust_data();
+        }
+
+        tp_get_adjust_data();
+
         return 0;           /* �Ѿ�У׼ */
 }
 

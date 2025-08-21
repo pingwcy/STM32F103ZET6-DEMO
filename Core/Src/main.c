@@ -24,6 +24,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "FreeRTOS.h"
+#include "task.h"
 
 /* USER CODE END Includes */
 
@@ -84,6 +86,9 @@ extern const osThreadAttr_t uartTask_attributes;
 extern osThreadId_t saveTaskHandle;
 extern const osThreadAttr_t saveTask_attributes;
 
+extern osThreadId_t monitorTaskHandle;
+extern const osThreadAttr_t monitorTask_attributes;
+
 extern uint8_t tx_e3;
 extern uint8_t tx_e4;
 extern uint8_t tx_a0;
@@ -103,6 +108,11 @@ extern void RemoteTask(void *argument);
 extern void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second);
 extern void Get_RTC_DateTime(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second);
 extern void saveTask(void *argument);
+extern void monitorTask(void *argument);
+
+extern uint8_t _end;
+extern uint8_t _estack;
+extern uint8_t _Min_Stack_Size;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -159,6 +169,25 @@ void WHIRLPOOL_init(WHIRLPOOL_CTX* const ctx);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#include "FreeRTOS.h"
+#include "task.h"
+
+void display_ram_info(void) {
+    // 获取当前空闲堆内存
+    size_t free_heap = xPortGetFreeHeapSize();
+
+    // 获取历史最小空闲堆内存（需要configUSE_MALLOC_FAILED_HOOK=1）
+    // size_t min_ever_free_heap = xPortGetMinimumEverFreeHeapSize();
+
+    char lcd_buffer[64];
+    sprintf(lcd_buffer, "Heap:%lu/%lu bytes",
+           (unsigned long)free_heap,
+           (unsigned long)configTOTAL_HEAP_SIZE);
+
+    taskENTER_CRITICAL();
+    lcd_show_string(10, 150, 240, 16, 16, lcd_buffer, RED);
+    taskEXIT_CRITICAL();
+}
 void generate_random_string(char *buf, int len) {
     for (int i = 0; i < len; i++) {
         buf[i] = (rand() % (0x7E - 0x21 + 1)) + 0x21; // 可打印ASCII
@@ -271,12 +300,7 @@ int main(void)
   #define TEXT_SIZE       sizeof(g_text_buf)
   uint8_t datatemp[TEXT_SIZE];
 
-  const uint8_t g_text_buf2[] = {"A nice Sloth!"};
-  #define TEXT_SIZE2 sizeof(g_text_buf2) /* TEXT×Ö·û´®³¤¶È */
-  uint8_t datatemp2[TEXT_SIZE2];
-  //uint32_t flashsize = 16 * 1024 * 1024;
-
-  srand(TIM2->CNT);
+  //srand(TIM2->CNT);
   uint8_t year, month, day, hour, minute, second;
   Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
   if ((int)year < 1){
@@ -287,18 +311,14 @@ int main(void)
   sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
   lcd_clear(BLUE);
   lcd_show_num(120, 10, rtc1data, 5, 16, YELLOW);
-  lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
-  lcd_show_string(10, 150, 240, 16, 16, "Cunyuan Wang", RED);
+  //lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
   lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
   HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
   //at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
-  HAL_IWDG_Refresh(&hiwdg);
-  //generate_random_string(strrand, 8);
 
   //lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
-  HAL_IWDG_Refresh(&hiwdg);
 
   //lcd_show_string(10, 250, 200, 16, 16, "Start Read.... ", RED);
   at24cxx_read(0, datatemp, TEXT_SIZE);
@@ -307,16 +327,6 @@ int main(void)
 
   HAL_IWDG_Refresh(&hiwdg);
 
-  //sprintf((char *)datatemp2, "%s%d", (char *)g_text_buf2, i);
-  //norflash_write((uint8_t *)datatemp2, flashsize - 100, TEXT_SIZE2);      /* ´Óµ¹ÊýµÚ100¸öµØÖ·´¦¿ªÊ¼,Ð´ÈëSIZE³¤¶ÈµÄÊý¾Ý */
-  //norflash_read(datatemp2, flashsize - 100, TEXT_SIZE2);
-  //lcd_show_string(10, 270, 200, 16, 16, "Data Readed From Flash Is:", BLUE);
-  //lcd_show_string(10, 290, 200, 16, 16, (char *)datatemp2, BLUE);
-
-  for (int i = 0; i < TEXT_SIZE2; i++)
-  {
-      HAL_UART_Transmit(&huart1, &datatemp2[i], 1, 100);
-  }
   tp_dev.init();
   /* USER CODE END 2 */
 
@@ -351,6 +361,7 @@ int main(void)
   touchTaskHandle = osThreadNew(touchTask, NULL, &touchTask_attributes);
   uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
   saveTaskHandle = osThreadNew(saveTask, NULL, &saveTask_attributes);
+  monitorTaskHandle = osThreadNew(monitorTask, NULL, &monitorTask_attributes);
 
   /* USER CODE END RTOS_THREADS */
 

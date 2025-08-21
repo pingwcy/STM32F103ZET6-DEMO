@@ -39,7 +39,7 @@ osThreadId_t remoteTaskHandle;
 const osThreadAttr_t remoteTask_attributes = {
     .name = "remoteTask",
     .priority = (osPriority_t) osPriorityNormal,
-    .stack_size = 256 * 16
+    .stack_size = 256 * 8
 };
 
 osThreadId_t dogTaskHandle;
@@ -53,7 +53,7 @@ osThreadId_t infoTaskHandle;
 const osThreadAttr_t infoTask_attributes = {
     .name = "infoTask",
     .priority = (osPriority_t) osPriorityNormal,
-    .stack_size = 256 * 4
+    .stack_size = 256 * 8
 };
 
 osThreadId_t touchTaskHandle;
@@ -77,6 +77,15 @@ const osThreadAttr_t saveTask_attributes = {
     .stack_size = 128 * 4
 };
 
+
+// 监控任务自己的句柄
+osThreadId_t monitorTaskHandle;
+const osThreadAttr_t monitorTask_attributes = {
+    .name = "monitorTask",
+    .priority = (osPriority_t) osPriorityNormal, // 低优先级，不影响关键任务
+    .stack_size = 256 * 4 // 512字节，足够它运行
+};
+
 uint8_t tx_e3 = 0xE3;
 uint8_t tx_e4 = 0xE4;
 uint8_t tx_a0 = 0xA0;
@@ -93,6 +102,7 @@ FRESULT res;  // 返回结果
 uint8_t close_red = 0;  // 改为全局变量
 char strrand[16];
 unsigned char hash_output[64];
+
 
 /* USER CODE END PD */
 
@@ -121,12 +131,65 @@ extern UART_HandleTypeDef huart1;
 
 extern SRAM_HandleTypeDef hsram1;
 
+extern osThreadId_t defaultTaskHandle;
+extern const osThreadAttr_t defaultTask_attributes;
 /* USER CODE END Variables */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 
 /* USER CODE END FunctionPrototypes */
+
+/* Hook prototypes */
+void vApplicationIdleHook(void);
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
+void vApplicationMallocFailedHook(void);
+
+/* USER CODE BEGIN 2 */
+void vApplicationIdleHook( void )
+{
+
+   /* vApplicationIdleHook() will only be called if configUSE_IDLE_HOOK is set
+   to 1 in FreeRTOSConfig.h. It will be called on each iteration of the idle
+   task. It is essential that code added to this hook function never attempts
+   to block in any way (for example, call xQueueReceive() with a block time
+   specified, or call vTaskDelay()). If the application makes use of the
+   vTaskDelete() API function (as this demo application does) then it is also
+   important that vApplicationIdleHook() is permitted to return to its calling
+   function, because it is the responsibility of the idle task to clean up
+   memory allocated by the kernel to any task that has since been deleted. */
+}
+/* USER CODE END 2 */
+
+/* USER CODE BEGIN 4 */
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
+{
+    (void) xTask; // 消除未使用变量的警告
+    taskENTER_CRITICAL();
+    lcd_show_string(130, 10, 240, 16, 16, "==STACK OVERFLOW DETECTED!!", RED);
+    taskEXIT_CRITICAL();
+
+   /* Run time stack overflow checking is performed if
+   configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
+   called if a stack overflow is detected. */
+}
+/* USER CODE END 4 */
+
+/* USER CODE BEGIN 5 */
+void vApplicationMallocFailedHook(void)
+{
+   /* vApplicationMallocFailedHook() will only be called if
+   configUSE_MALLOC_FAILED_HOOK is set to 1 in FreeRTOSConfig.h. It is a hook
+   function that will get called if a call to pvPortMalloc() fails.
+   pvPortMalloc() is called internally by the kernel whenever a task, queue,
+   timer or semaphore is created. It is also called by various parts of the
+   demo application. If heap_1.c or heap_2.c are used, then the size of the
+   heap available to pvPortMalloc() is defined by configTOTAL_HEAP_SIZE in
+   FreeRTOSConfig.h, and the xPortGetFreeHeapSize() API function can be used
+   to query the size of free heap space that remains (although it does not
+   provide information on how the remaining heap might be fragmented). */
+}
+/* USER CODE END 5 */
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
@@ -228,14 +291,71 @@ int main2() {
     taskENTER_CRITICAL();
     lcd_show_string(170, 10, 240, 16, 16, strrand, RED);
     lcd_show_string(10, 30, 240, 16, 16, str1, RED);
-    lcd_show_string(10, 50, 240, 16, 16, str2, RED);
-    lcd_show_string(10, 70, 240, 16, 16, str3, RED);
-    lcd_show_string(10, 90, 240, 16, 16, str4, RED);
-    lcd_show_string(10, 110, 240, 16, 16, str5, RED);
+    //lcd_show_string(10, 50, 240, 16, 16, str2, RED);
+    //lcd_show_string(10, 70, 240, 16, 16, str3, RED);
+    //lcd_show_string(10, 90, 240, 16, 16, str4, RED);
+    //lcd_show_string(10, 110, 240, 16, 16, str5, RED);
     taskEXIT_CRITICAL();
     return 0;
 }
 
+void monitorTask(void *argument)
+{
+    char cLineBuffer[4][32]; // 每行显示缓冲区
+
+    for (;;)
+    {
+        // 获取每个任务的栈剩余空间（单位：word）
+        UBaseType_t remoteStack = uxTaskGetStackHighWaterMark(remoteTaskHandle);
+        UBaseType_t dogStack = uxTaskGetStackHighWaterMark(dogTaskHandle);
+        UBaseType_t infoStack = uxTaskGetStackHighWaterMark(infoTaskHandle);
+        UBaseType_t touchStack = uxTaskGetStackHighWaterMark(touchTaskHandle);
+        UBaseType_t uartStack = uxTaskGetStackHighWaterMark(uartTaskHandle);
+        UBaseType_t saveStack = uxTaskGetStackHighWaterMark(saveTaskHandle);
+        UBaseType_t monitorStack = uxTaskGetStackHighWaterMark(monitorTaskHandle);
+        UBaseType_t defaultStack = uxTaskGetStackHighWaterMark(defaultTaskHandle);
+
+        // 栈总大小（单位：word）
+        const UBaseType_t remoteTotal = remoteTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t dogTotal = dogTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t infoTotal = infoTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t touchTotal = touchTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t uartTotal = uartTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t saveTotal = saveTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t monitorTotal = monitorTask_attributes.stack_size / sizeof(StackType_t);
+        const UBaseType_t defaultTotal = defaultTask_attributes.stack_size / sizeof(StackType_t);
+
+        // 使用量 = 总栈 - 剩余栈
+        snprintf(cLineBuffer[0], sizeof(cLineBuffer[0]), "rm:%02d/%02d  dg:%02d/%02d",
+                 remoteTotal - remoteStack, remoteTotal,
+                 dogTotal - dogStack, dogTotal);
+
+        snprintf(cLineBuffer[1], sizeof(cLineBuffer[1]), "if:%02d/%02d  tc:%02d/%02d",
+                 infoTotal - infoStack, infoTotal,
+                 touchTotal - touchStack, touchTotal);
+
+        snprintf(cLineBuffer[2], sizeof(cLineBuffer[2]), "ua:%02d/%02d  sv:%02d/%02d",
+                 uartTotal - uartStack, uartTotal,
+                 saveTotal - saveStack, saveTotal);
+
+        snprintf(cLineBuffer[3], sizeof(cLineBuffer[3]), "mn:%02d/%02d  df:%02d/%02d",
+                 monitorTotal - monitorStack, monitorTotal,
+				 defaultTotal - defaultStack, defaultTotal);
+
+
+        // LCD显示
+    	taskENTER_CRITICAL();
+        lcd_show_string(10, 50, 240, 16, 16, cLineBuffer[0], RED);
+        lcd_show_string(10, 70, 240, 16, 16, cLineBuffer[1], RED);
+        lcd_show_string(10, 90, 240, 16, 16, cLineBuffer[2], RED);
+        lcd_show_string(10, 110, 240, 16, 16, cLineBuffer[3], RED);
+        taskEXIT_CRITICAL();
+        display_ram_info();
+
+
+        osDelay(5000); // 每秒更新一次
+    }
+}
 void dogTask(void *argument){
 	for (;;){
         HAL_IWDG_Refresh(&hiwdg);
@@ -261,9 +381,14 @@ void infoTask(void *argument){
     char str[12];
     res = f_mount(&fs, "", 1);  // 挂载到逻辑驱动器 0:，立即挂载
     if (res == FR_OK) {
+    	taskENTER_CRITICAL();
         lcd_show_string(10, 270, 200, 16, 16, "FATFS mount OK.", BLUE);
+        taskEXIT_CRITICAL();
     } else {
+    	taskENTER_CRITICAL();
         lcd_show_string(10, 270, 200, 16, 16, "FATFS mount failed", BLUE);
+        taskEXIT_CRITICAL();
+
     }
 
     char file_list[256];   // 最终拼好的字符串
@@ -288,10 +413,13 @@ void infoTask(void *argument){
             offset += n;
         }
         f_closedir(&dir);
-
+    	taskENTER_CRITICAL();
         lcd_show_string(10, 290, 200, 16, 16, file_list, BLUE);
+        taskEXIT_CRITICAL();
     } else {
+    	taskENTER_CRITICAL();
         lcd_show_string(10, 290, 200, 16, 16, "Open root dir failed", BLUE);
+        taskEXIT_CRITICAL();
     }
 
 
@@ -336,9 +464,13 @@ void touchTask(void *argument){
 
         if (tp_dev.sta & TP_PRES_DOWN)
         {
+        	tp_draw_big_point(tp_dev.x[0], tp_dev.y[0], RED);
         	taskENTER_CRITICAL();
             lcd_show_string(10, 210, 200, 16, 16, "Screen Touched!", RED);
             taskEXIT_CRITICAL();
+            if (tp_dev.x[0] >10 && tp_dev.x[0] < 200 && tp_dev.y[0] > 200 && tp_dev.y[0] < 230){
+                lcd_show_string(10, 210, 200, 16, 16, "Remove Status!!", RED);
+            }
         }
         osDelay(100);
 	}
@@ -382,7 +514,9 @@ void RemoteTask(void *argument)
         key = remote_scan();  // 获取按键
         if((currentTime - lastKeyTime) > displayTimeout)
         {
+            taskENTER_CRITICAL();
             lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
+            taskEXIT_CRITICAL();
         }
 
         if(key != 0 && lastKey == 0)  // 有按键输入
@@ -462,6 +596,7 @@ void RemoteTask(void *argument)
     	}
 
         osDelay(150); // 适当延时，防抖/节省CPU
+        // 检查是否到达预定报告时间
     }
 }
 
