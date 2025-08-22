@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -32,9 +32,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-    LED_OFF,
-    LED_ON,
-    LED_BLINK
+	LED_OFF, LED_ON, LED_BLINK
 } LedMode_t;
 
 volatile LedMode_t led_mode = LED_OFF;
@@ -42,6 +40,16 @@ uint32_t last_tick = 0;
 
 extern uint8_t g_remote_sta;
 
+osTimerId_t timer_id;
+osTimerAttr_t timer_attr = {
+  .name = "myTimer"
+};
+osThreadId_t timerCommandTaskHandle; // 处理定时器命令的任务句柄
+
+// 定时器回调函数
+void TimerCallback(void *argument) {
+  HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_5);
+}
 
 uint32_t last_debounce_time = 0;
 
@@ -78,7 +86,7 @@ extern osThreadId_t infoTaskHandle;
 extern const osThreadAttr_t infoTask_attributes;
 
 extern osThreadId_t touchTaskHandle;
-extern const osThreadAttr_t touchTask_attributes ;
+extern const osThreadAttr_t touchTask_attributes;
 
 extern osThreadId_t uartTaskHandle;
 extern const osThreadAttr_t uartTask_attributes;
@@ -105,14 +113,17 @@ extern void infoTask(void *argument);
 extern void touchTask(void *argument);
 extern void uartTask(void *argument);
 extern void RemoteTask(void *argument);
-extern void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute, uint8_t second);
-extern void Get_RTC_DateTime(uint8_t *year, uint8_t *month, uint8_t *day, uint8_t *hour, uint8_t *minute, uint8_t *second);
+extern void Set_RTC_DateTime(uint8_t year, uint8_t month, uint8_t day,
+		uint8_t hour, uint8_t minute, uint8_t second);
+extern void Get_RTC_DateTime(uint8_t *year, uint8_t *month, uint8_t *day,
+		uint8_t *hour, uint8_t *minute, uint8_t *second);
 extern void saveTask(void *argument);
 extern void monitorTask(void *argument);
 extern void IdleSimTask(void *argument);
 extern osMessageQueueId_t uartQueue;
 extern osSemaphoreId_t remoteSemaphore;
 extern osSemaphoreId_t touchSem;
+extern volatile uint8_t adc_data_ready;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -161,9 +172,10 @@ static void MX_ADC1_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-void WHIRLPOOL_add(const unsigned char * source, unsigned __int32 sourceBytes, WHIRLPOOL_CTX * const ctx);
-void WHIRLPOOL_finalize(WHIRLPOOL_CTX* const ctx, unsigned char * result);
-void WHIRLPOOL_init(WHIRLPOOL_CTX* const ctx);
+void WHIRLPOOL_add(const unsigned char *source, unsigned __int32 sourceBytes,
+		WHIRLPOOL_CTX *const ctx);
+void WHIRLPOOL_finalize(WHIRLPOOL_CTX *const ctx, unsigned char *result);
+void WHIRLPOOL_init(WHIRLPOOL_CTX *const ctx);
 
 /* USER CODE END PFP */
 
@@ -173,108 +185,108 @@ void WHIRLPOOL_init(WHIRLPOOL_CTX* const ctx);
 #include "task.h"
 
 void display_ram_info(void) {
-    // 获取当前空闲堆内存
-    size_t free_heap = xPortGetFreeHeapSize();
+	// 获取当前空闲堆内存
+	size_t free_heap = xPortGetFreeHeapSize();
 
-    // 获取历史最小空闲堆内存（需要configUSE_MALLOC_FAILED_HOOK=1）
-    // size_t min_ever_free_heap = xPortGetMinimumEverFreeHeapSize();
+	// 获取历史最小空闲堆内存（需要configUSE_MALLOC_FAILED_HOOK=1）
+	// size_t min_ever_free_heap = xPortGetMinimumEverFreeHeapSize();
 
-    char lcd_buffer[64];
-    sprintf(lcd_buffer, "Heap:%lu/%lu bytes",
-           (unsigned long)free_heap,
-           (unsigned long)configTOTAL_HEAP_SIZE);
+	char lcd_buffer[64];
+	sprintf(lcd_buffer, "Heap:%lu/%lu bytes", (unsigned long) free_heap,
+			(unsigned long) configTOTAL_HEAP_SIZE);
 
-    taskENTER_CRITICAL();
-    lcd_show_string(10, 150, 240, 16, 16, lcd_buffer, RED);
-    taskEXIT_CRITICAL();
+	taskENTER_CRITICAL();
+	lcd_show_string(10, 150, 240, 16, 16, lcd_buffer, RED);
+	taskEXIT_CRITICAL();
 }
 void generate_random_string(char *buf, int len) {
-    for (int i = 0; i < len; i++) {
-        buf[i] = (rand() % (0x7E - 0x21 + 1)) + 0x21; // 可打印ASCII
-    }
-    buf[len] = '\0'; // 字符串结束符
+	for (int i = 0; i < len; i++) {
+		buf[i] = (rand() % (0x7E - 0x21 + 1)) + 0x21; // 可打印ASCII
+	}
+	buf[len] = '\0'; // 字符串结束符
 }
 
 // 在合适的位置添加中断处理函数
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-    static uint32_t last_debounce_time = 0;
-    uint32_t current_tick = HAL_GetTick();
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	static uint32_t last_debounce_time = 0;
+	uint32_t current_tick = HAL_GetTick();
 
-    // 处理触摸屏 PEN（不防抖）
-    if(GPIO_Pin == GPIO_PIN_10)  // PF10
-    {
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        osSemaphoreRelease(touchSem);   // 通知任务去处理触摸
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-        return; // 触摸屏处理完成，直接返回
-    }
+	// 处理触摸屏 PEN（不防抖）
+	if (GPIO_Pin == GPIO_PIN_10)  // PF10
+	{
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		osSemaphoreRelease(touchSem);   // 通知任务去处理触摸
+		portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+		return; // 触摸屏处理完成，直接返回
+	}
 
-    // 处理按钮（带防抖）
-    if((current_tick - last_debounce_time) > 50)  // 防抖
-    {
-        last_debounce_time = current_tick;
+	// 处理按钮（带防抖）
+	if ((current_tick - last_debounce_time) > 150)  // 防抖
+			{
+		last_debounce_time = current_tick;
 
-        if(GPIO_Pin == BTN_PIN1)
-        {
-            uart_msg_t msg = {1, 0xE3}; // type=1表示TX
-            osMessageQueuePut(uartQueue, &msg, 0, 0);
+		if (GPIO_Pin == BTN_PIN1) {
+			uart_msg_t msg = { 1, 0xE3 }; // type=1表示TX
+			osThreadFlagsSet(timerCommandTaskHandle, 0x0001);
+			osMessageQueuePut(uartQueue, &msg, 0, 0);
 
-            if(led_mode != LED_ON)
-            {
-                led_mode = LED_ON;
-                HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
-            }
-            else
-            {
-                led_mode = LED_OFF;
-                HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
-            }
-        }
-        else if(GPIO_Pin == BTN_PIN2)
-        {
-            uart_msg_t msg = {1, 0xE4};
-            osMessageQueuePut(uartQueue, &msg, 0, 0);
-            led_mode = LED_BLINK;
-        }
-        else if(GPIO_Pin == BTN_PIN0)
-        {
-            uart_msg_t msg = {1, 0xA0};
-            osMessageQueuePut(uartQueue, &msg, 0, 0);
-            HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-        }
-    }
-}
-void USART1_IRQHandler(void)
-{
-    HAL_UART_IRQHandler(&huart1);
+			if (led_mode != LED_ON) {
+				led_mode = LED_ON;
+				HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
+			} else {
+				led_mode = LED_OFF;
+				HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_RESET);
+			}
+		} else if (GPIO_Pin == BTN_PIN2) {
+			uart_msg_t msg = { 1, 0xE4 };
+			osThreadFlagsSet(timerCommandTaskHandle, 0x0001);
+			osMessageQueuePut(uartQueue, &msg, 0, 0);
+			led_mode = LED_BLINK;
+		} else if (GPIO_Pin == BTN_PIN0) {
+			uart_msg_t msg = { 1, 0xA0 };
+			osMessageQueuePut(uartQueue, &msg, 0, 0);
+			HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+		}
+	}
 }
 
 // 添加UART接收完成回调
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+	if (huart->Instance == USART1) {
+		uart_msg_t msg = { 0, close_red }; // type=0表示RX
+		osMessageQueuePut(uartQueue, &msg, 0, 0);
+		HAL_UART_Receive_IT(&huart1, &close_red, 1);
+	}
+}
+#include "stdarg.h"
+void uart_printf(const char *fmt, ...)
 {
-    if (huart->Instance == USART1) {
-        uart_msg_t msg = {0, close_red}; // type=0表示RX
-        osMessageQueuePut(uartQueue, &msg, 0, 0);
-        HAL_UART_Receive_IT(&huart1, &close_red, 1);
+    char buffer[128];
+    va_list args;
+    va_start(args, fmt);
+    int len = vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    if (len > 0)
+    {
+        HAL_UART_Transmit(&huart1, (uint8_t*)buffer, len, HAL_MAX_DELAY);
     }
 }
 
 
-void rtc_write_bkr(uint32_t bkrx, uint16_t data)
-{
-    HAL_PWR_EnableBkUpAccess();
-    HAL_RTCEx_BKUPWrite(&hrtc, bkrx, data);
+void rtc_write_bkr(uint32_t bkrx, uint16_t data) {
+	HAL_PWR_EnableBkUpAccess();
+	HAL_RTCEx_BKUPWrite(&hrtc, bkrx, data);
 }
 
-uint16_t rtc_read_bkr(uint32_t bkrx)
-{
+uint16_t rtc_read_bkr(uint32_t bkrx) {
 	HAL_PWR_EnableBkUpAccess();
-    uint32_t temp = 0;
-    temp = HAL_RTCEx_BKUPRead(&hrtc, bkrx);
-    return (uint16_t)temp;
+	uint32_t temp = 0;
+	temp = HAL_RTCEx_BKUPRead(&hrtc, bkrx);
+	return (uint16_t) temp;
 }
+
 
 /* USER CODE END 0 */
 
@@ -286,8 +298,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	SCB->VTOR =  0x08020000;
-    uint8_t lcd_id[12];
+	SCB->VTOR = 0x08020000;
+	uint8_t lcd_id[12];
 
   /* USER CODE END 1 */
 
@@ -321,61 +333,63 @@ int main(void)
   MX_ADC1_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  //rtc_write_bkr(1, 17134);
-  uint16_t rtc1data = rtc_read_bkr(1);
-  lcd_init();
-  at24cxx_init();
-  norflash_init();
+	//rtc_write_bkr(1, 17134);
 
-  const uint8_t g_text_buf[] = {"It's a good sloth!"};
-  #define TEXT_SIZE       sizeof(g_text_buf)
-  uint8_t datatemp[TEXT_SIZE];
+	uint16_t rtc1data = rtc_read_bkr(1);
+	lcd_init();
+	at24cxx_init();
+	norflash_init();
+	const uint8_t g_text_buf[] = { "It's a good sloth!" };
+#define TEXT_SIZE       sizeof(g_text_buf)
+	uint8_t datatemp[TEXT_SIZE];
 
-  //srand(TIM2->CNT);
-  Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
+	//srand(TIM2->CNT);
+	Set_RTC_DateTime(0x37, 8, 0x0c, 0x13, 0x0d, 0x1e);
 
-  g_point_color = BLUE;
-  sprintf((char *)lcd_id, "LCD ID:%04X", lcddev.id);  /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
-  lcd_clear(BLUE);
-  lcd_show_num(120, 10, rtc1data, 5, 16, YELLOW);
-  //lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
-  lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
-  HAL_IWDG_Refresh(&hiwdg);
+	g_point_color = BLUE;
+	sprintf((char*) lcd_id, "LCD ID:%04X", lcddev.id); /* ½«LCD ID´òÓ¡µ½lcd_idÊý×é */
+	lcd_clear(BLUE);
+	lcd_show_num(120, 10, rtc1data, 5, 16, YELLOW);
+	//lcd_show_string(10, 130, 240, 16, 16, (char *)lcd_id, RED); /* ÏÔÊ¾LCD ID */
+	lcd_show_string(10, 190, 240, 16, 16, "LSENS VAL:", BLUE);
+	HAL_IWDG_Refresh(&hiwdg);
 
-  //lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
-  //at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
+	//lcd_show_string(10, 210, 200, 16, 16, "Start Write....", RED);
+	//at24cxx_write(0, (uint8_t *)g_text_buf, TEXT_SIZE);
 
-  //lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
+	//lcd_show_string(10, 210, 200, 16, 16, "24C02 Write Finished!", RED);   /* ÌáÊ¾´«ËÍÍê³É */
 
-  at24cxx_read(0, datatemp, TEXT_SIZE);
-  lcd_show_string(10, 230, 200, 16, 16, "EEPROM Data Readed Is:", RED);
-  lcd_show_string(10, 250, 200, 16, 16, (char *)datatemp, RED);
+	at24cxx_read(0, datatemp, TEXT_SIZE);
+	lcd_show_string(10, 230, 200, 16, 16, "EEPROM Data Readed Is:", RED);
+	lcd_show_string(10, 250, 200, 16, 16, (char*) datatemp, RED);
 
-  HAL_IWDG_Refresh(&hiwdg);
+	HAL_IWDG_Refresh(&hiwdg);
 
-  tp_dev.init();
+	tp_dev.init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();
 
   /* USER CODE BEGIN RTOS_MUTEX */
-  /* add mutexes, ... */
+	/* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
-  /* add semaphores, ... */
-  remoteSemaphore = osSemaphoreNew(1, 0, NULL);
-  touchSem = osSemaphoreNew(1, 0, NULL);
+	/* add semaphores, ... */
+	remoteSemaphore = osSemaphoreNew(1, 0, NULL);
+	touchSem = osSemaphoreNew(1, 0, NULL);
   /* USER CODE END RTOS_SEMAPHORES */
 
   /* USER CODE BEGIN RTOS_TIMERS */
-  /* start timers, add new ones, ... */
+	 timer_id = osTimerNew(TimerCallback, osTimerPeriodic, NULL, &timer_attr);
+	 osTimerStart(timer_id, 500);
+	/* start timers, add new ones, ... */
   /* USER CODE END RTOS_TIMERS */
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  /* add queues, ... */
-  uartQueue = osMessageQueueNew(10, sizeof(uart_msg_t), NULL);
+	/* add queues, ... */
+	uartQueue = osMessageQueueNew(10, sizeof(uart_msg_t), NULL);
 
   /* USER CODE END RTOS_QUEUES */
 
@@ -384,21 +398,20 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
-  dogTaskHandle = osThreadNew(dogTask, NULL, &dogTask_attributes);
-  remoteTaskHandle = osThreadNew(RemoteTask, NULL, &remoteTask_attributes);
-  infoTaskHandle = osThreadNew(infoTask, NULL, &infoTask_attributes);
-  touchTaskHandle = osThreadNew(touchTask, NULL, &touchTask_attributes);
-  uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
-  saveTaskHandle = osThreadNew(saveTask, NULL, &saveTask_attributes);
-  monitorTaskHandle = osThreadNew(monitorTask, NULL, &monitorTask_attributes);
-  //idleTaskHandle = osThreadNew(IdleSimTask, NULL, &monitorTask_attributes);
-
+	/* add threads, ... */
+	dogTaskHandle = osThreadNew(dogTask, NULL, &dogTask_attributes);
+	remoteTaskHandle = osThreadNew(RemoteTask, NULL, &remoteTask_attributes);
+	infoTaskHandle = osThreadNew(infoTask, NULL, &infoTask_attributes);
+	touchTaskHandle = osThreadNew(touchTask, NULL, &touchTask_attributes);
+	uartTaskHandle = osThreadNew(uartTask, NULL, &uartTask_attributes);
+	saveTaskHandle = osThreadNew(saveTask, NULL, &saveTask_attributes);
+	monitorTaskHandle = osThreadNew(monitorTask, NULL, &monitorTask_attributes);
+	//idleTaskHandle = osThreadNew(IdleSimTask, NULL, &monitorTask_attributes);
 
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
-  /* add events, ... */
+	/* add events, ... */
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
@@ -408,12 +421,11 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+	while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	}
   /* USER CODE END 3 */
 }
 
@@ -515,7 +527,7 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
-  //ADC->CCR |= ADC_CCR_TSVREFE;
+	//ADC->CCR |= ADC_CCR_TSVREFE;
   /* USER CODE END ADC1_Init 2 */
 
 }
@@ -542,7 +554,7 @@ static void MX_ADC3_Init(void)
   */
   hadc3.Instance = ADC3;
   hadc3.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc3.Init.ContinuousConvMode = DISABLE;
+  hadc3.Init.ContinuousConvMode = ENABLE;
   hadc3.Init.DiscontinuousConvMode = DISABLE;
   hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc3.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -596,7 +608,8 @@ static void MX_I2C1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN I2C1_Init 2 */
-
+  /* USER CODE BEGIN I2C1_Init 2 */
+  // 强制启用I2C中断
   /* USER CODE END I2C1_Init 2 */
 
 }
@@ -738,17 +751,17 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
-  __HAL_RCC_TIM2_CLK_ENABLE();
+	__HAL_RCC_TIM2_CLK_ENABLE();
 
-  //TIM_HandleTypeDef htim2;
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 72 - 1;  // 1 MHz, 1 us per tick
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 0xFFFF;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  HAL_TIM_Base_Init(&htim2);
+	//TIM_HandleTypeDef htim2;
+	htim2.Instance = TIM2;
+	htim2.Init.Prescaler = 72 - 1;  // 1 MHz, 1 us per tick
+	htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim2.Init.Period = 0xFFFF;
+	htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	HAL_TIM_Base_Init(&htim2);
 
-  HAL_TIM_Base_Start(&htim2);
+	HAL_TIM_Base_Start(&htim2);
 
   /* USER CODE END TIM2_Init 2 */
 
@@ -807,8 +820,8 @@ static void MX_TIM4_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM4_Init 2 */
-  HAL_TIM_IC_Start_IT(&htim4, REMOTE_IN_TIMX_CHY);
-  __HAL_TIM_ENABLE_IT(&htim4, TIM_IT_UPDATE);
+	HAL_TIM_IC_Start_IT(&htim4, REMOTE_IN_TIMX_CHY);
+	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_UPDATE);
 
   /* USER CODE END TIM4_Init 2 */
 
@@ -842,8 +855,6 @@ static void MX_USART1_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
-  HAL_NVIC_SetPriority(USART1_IRQn, 6, 0);
-  HAL_NVIC_EnableIRQ(USART1_IRQn);
 
   /* USER CODE END USART1_Init 2 */
 
@@ -928,17 +939,16 @@ static void MX_GPIO_Init(void)
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // Turn on LED Screen back light
 
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // Turn on LED Screen back light
+	/* Beep*/
+	//HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_SET); // �??????
+	HAL_Delay(BEEP_SHORT_BEEP_TIME);
+	HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_RESET); // �??????
 
-  /* Beep*/
-  //HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_SET); // �??????
-  HAL_Delay(BEEP_SHORT_BEEP_TIME);
-  HAL_GPIO_WritePin(BEEP_PORT, BEEP_PIN, GPIO_PIN_RESET); // �??????
+	HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET); //PB5 Red LED
 
-  HAL_GPIO_WritePin(PB5_LED_PORT, PB5_LED_PIN, GPIO_PIN_RESET); //PB5 Red LED
-
-  last_tick = HAL_GetTick();
+	last_tick = HAL_GetTick();
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -1001,42 +1011,33 @@ static void MX_FSMC_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
 /**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
+ * @brief  Function implementing the defaultTask thread.
+ * @param  argument: Not used
+ * @retval None
+ */
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void *argument)
 {
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
-		    uint8_t year, month, day, hour, minute, second;
+	/* Infinite loop */
+  timerCommandTaskHandle = osThreadGetId();
+	for (;;)
+	{
+		osThreadFlagsWait(0x0001, osFlagsWaitAny, osWaitForever);
+		if (osTimerIsRunning(timer_id) || led_mode == LED_ON || led_mode == LED_OFF) {
+		    osTimerStop(timer_id);
+		} else {
+		    osTimerStart(timer_id, 500); // 0 表示使用创建时设置的周期
+		}
 
-		    for(;;) // FreeRTOS 任务循环
-		    {
-		        // LED 闪烁
-		        uint32_t current_tick = HAL_GetTick();
-		        if(led_mode == LED_BLINK) {
-		            int blink_int = 333;
-		            Get_RTC_DateTime(&year, &month, &day, &hour, &minute, &second);
-		            if (second >= 31){
-		                blink_int = 1000;
-		            }
-		            static uint32_t last_tick = 0;
-		            if((current_tick - last_tick) >= blink_int) {
-		                last_tick = current_tick;
-		                HAL_GPIO_TogglePin(LED_PORT, LED_PIN);
-		            }
-		        }
-		        }
-		        osDelay(50); // FreeRTOS 任务延时代替 HAL_Delay
+	}
+
 
   /* USER CODE END 5 */
 }
@@ -1059,31 +1060,25 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
-  if (htim->Instance == TIM4)
-  {
-      if (g_remote_sta & 0x80)      /* �ϴ������ݱ����յ��� */
-      {
-          g_remote_sta &= ~0X10;    /* ȡ���������Ѿ��������� */
+	if (htim->Instance == TIM4) {
+		if (g_remote_sta & 0x80) /* �ϴ������ݱ����յ��� */
+		{
+			g_remote_sta &= ~0X10; /* ȡ���������Ѿ��������� */
 
-          if ((g_remote_sta & 0X0F) == 0X00)
-          {
-              g_remote_sta |= 1 << 6; /* ����Ѿ����һ�ΰ����ļ�ֵ��Ϣ�ɼ� */
-              osSemaphoreRelease(remoteSemaphore);
+			if ((g_remote_sta & 0X0F) == 0X00) {
+				g_remote_sta |= 1 << 6; /* ����Ѿ����һ�ΰ����ļ�ֵ��Ϣ�ɼ� */
+				//osSemaphoreRelease(remoteSemaphore);
 
-          }
+			}
 
-          if ((g_remote_sta & 0X0F) < 14)
-          {
-              g_remote_sta++;
-          }
-          else
-          {
-              g_remote_sta &= ~(1 << 7);    /* ���������ʶ */
-              g_remote_sta &= 0XF0;         /* ��ռ����� */
-          }
-      }
-  }
-
+			if ((g_remote_sta & 0X0F) < 14) {
+				g_remote_sta++;
+			} else {
+				g_remote_sta &= ~(1 << 7); /* ���������ʶ */
+				g_remote_sta &= 0XF0; /* ��ռ����� */
+			}
+		}
+	}
   /* USER CODE END Callback 1 */
 }
 
@@ -1094,11 +1089,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+	/* User can add his own implementation to report the HAL error return state */
+	__disable_irq();
+	while (1) {
+	}
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT

@@ -168,7 +168,7 @@ void vApplicationMallocFailedHook(void);
 void vApplicationIdleHook(void) __attribute__((noinline));
 void vApplicationIdleHook(void)
 {
-	idleTicks++;
+	//idleTicks++;
 }
 /* USER CODE END 2 */
 
@@ -427,8 +427,11 @@ void infoTask(void *argument)
         TickType_t currentTime = osKernelGetTickCount();
 
         // 1. 实时更新光敏传感器（每次循环）
+
+        // 非阻塞获取光敏传感器值
         adcx = lsens_get_val();
         lcd_show_xnum(90, 190, adcx, 3, 16, 0, BLUE);
+
 
         // 2. 每秒更新RTC时间
         if (currentTime - lastRtcUpdate >= 1000)
@@ -521,70 +524,65 @@ void uartTask(void *argument)
 }
 void RemoteTask(void *argument)
 {
-    uint8_t key, lastKey = 0;
+    uint8_t key;
     uint8_t index = 0;
-    uint8_t keyStableCount = 0;
-    const uint8_t DEBOUNCE_THRESHOLD = 2; // 连续检测次数阈值
+    uint8_t lastKey = 0;
+    uint32_t lastTick = 0;  // 记录上次有效按键时间
 
-    for(;;)
+    for (;;)
     {
-        lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-
+        // 等待红外解码完成
         osSemaphoreAcquire(remoteSemaphore, osWaitForever);
+
+        // 获取解码结果
         key = remote_scan();
 
-        if(key == lastKey)
-        {
-            if(key != 0)
-                keyStableCount++;
+        if (key == 0) {
+            continue; // 无效按键，直接丢弃
         }
-        else
-        {
-            keyStableCount = 0; // 按键变化，重置计数
+        uint32_t now = osKernelGetTickCount();
+        // 如果和上次是同一个键，并且间隔 < 300ms，则丢弃
+        if ((key == lastKey && (now - lastTick) < 2000) || (now - lastTick) < 300) {
+            continue;
         }
 
-        if(keyStableCount >= DEBOUNCE_THRESHOLD)
-        {
-            // 按键稳定，处理一次
-            const char *str = NULL;
-            taskENTER_CRITICAL();
-            switch(key)
-            {
-                case 22: str = "1"; lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED); break;
-                case 25: str = "2"; lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED); break;
-                case 13: str = "3"; lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED); break;
-                case 12: str = "4"; lcd_show_string(10, 10, 240, 16, 16, "Key 4 Pressed", RED); break;
-                case 24: str = "5"; lcd_show_string(10, 10, 240, 16, 16, "Key 5 Pressed", RED); break;
-                case 94: str = "6"; lcd_show_string(10, 10, 240, 16, 16, "Key 6 Pressed", RED); break;
-                case 8:  str = "7"; lcd_show_string(10, 10, 240, 16, 16, "Key 7 Pressed", RED); break;
-                case 28: str = "8"; lcd_show_string(10, 10, 240, 16, 16, "Key 8 Pressed", RED); break;
-                case 90: str = "9"; lcd_show_string(10, 10, 240, 16, 16, "Key 9 Pressed", RED); break;
-                case 66: str = "0"; lcd_show_string(10, 10, 240, 16, 16, "Key 0 Pressed", RED); break;
-                case 64: // Enter
-                    strrand[index] = '\0';
-                    if (strrand[0] != '\0') main2();
-                    index = 0;
-                    break;
-                default:
-                    lcd_show_string(10, 10, 240, 16, 16, "NO      INPUT", RED);
-                    break;
-            }
-            taskEXIT_CRITICAL();
+        lastKey = key;
+        lastTick = now;
 
-            // 如果是数字键，并且未超过 8 位
-            if(str != NULL && index < 8)
-            {
-                strcpy(&strrand[index], str);
-                index++;
+        const char *str = NULL;
+        taskENTER_CRITICAL();
+        switch(key)
+        {
+            case 22: str = "1"; lcd_show_string(10, 10, 240, 16, 16, "Key 1 Pressed", RED); break;
+            case 25: str = "2"; lcd_show_string(10, 10, 240, 16, 16, "Key 2 Pressed", RED); break;
+            case 13: str = "3"; lcd_show_string(10, 10, 240, 16, 16, "Key 3 Pressed", RED); break;
+            case 12: str = "4"; lcd_show_string(10, 10, 240, 16, 16, "Key 4 Pressed", RED); break;
+            case 24: str = "5"; lcd_show_string(10, 10, 240, 16, 16, "Key 5 Pressed", RED); break;
+            case 94: str = "6"; lcd_show_string(10, 10, 240, 16, 16, "Key 6 Pressed", RED); break;
+            case 8:  str = "7"; lcd_show_string(10, 10, 240, 16, 16, "Key 7 Pressed", RED); break;
+            case 28: str = "8"; lcd_show_string(10, 10, 240, 16, 16, "Key 8 Pressed", RED); break;
+            case 90: str = "9"; lcd_show_string(10, 10, 240, 16, 16, "Key 9 Pressed", RED); break;
+            case 66: str = "0"; lcd_show_string(10, 10, 240, 16, 16, "Key 0 Pressed", RED); break;
+            case 64: // Enter
                 strrand[index] = '\0';
-            }
-
-            keyStableCount = 0; // 只触发一次
+                if (strrand[0] != '\0') main2();
+                index = 0;
+                break;
+            default:
+                lcd_show_string(10, 10, 240, 16, 16, "NO INPUT", RED);
+                break;
         }
+        taskEXIT_CRITICAL();
 
-        lastKey = key;  // 更新上次按键状态
-        osDelay(500);    // 小延时，保证CPU不空转
+        // 如果是数字键，并且未超过 8 位
+        if(str != NULL && index < 8)
+        {
+            strcpy(&strrand[index], str);
+            index++;
+            strrand[index] = '\0';
+        }
     }
 }
+
 /* USER CODE END Application */
 

@@ -59,23 +59,23 @@ uint8_t at24cxx_read_one_byte(uint16_t addr)
      *    R/W      : ��/д����λ 0,��ʾд; 1,��ʾ��;
      *    A0/A1/A2 : ��Ӧ������1,2,3����(ֻ��24C01/02/04/8����Щ��)
      *    a8/a9/a10: ��Ӧ�洢���еĸ�λ��ַ, 11bit��ַ�����Ա�ʾ2048��λ��,����Ѱַ24C16�����ڵ��ͺ�
-     */    
+     */
     if (EE_TYPE > AT24C16)      /* 24C16���ϵ��ͺ�, ��2���ֽڷ��͵�ַ */
     {
         iic_send_byte(0XA0);    /* ����д����, IIC�涨���λ��0, ��ʾд�� */
         iic_wait_ack();         /* ÿ�η�����һ���ֽ�,��Ҫ�ȴ�ACK */
         iic_send_byte(addr >> 8);/* ���͸��ֽڵ�ַ */
     }
-    else 
+    else
     {
         iic_send_byte(0XA0 + ((addr >> 8) << 1));   /* �������� 0XA0 + ��λa8/a9/a10��ַ,д���� */
     }
-    
+
     iic_wait_ack();             /* ÿ�η�����һ���ֽ�,��Ҫ�ȴ�ACK */
     iic_send_byte(addr % 256);  /* ���͵�λ��ַ */
     iic_wait_ack();             /* �ȴ�ACK, ��ʱ��ַ��������� */
-    
-    iic_start();                /* ���·�����ʼ�ź� */ 
+
+    iic_start();                /* ���·�����ʼ�ź� */
     iic_send_byte(0XA1);        /* �������ģʽ, IIC�涨���λ��0, ��ʾ��ȡ */
     iic_wait_ack();             /* ÿ�η�����һ���ֽ�,��Ҫ�ȴ�ACK */
     temp = iic_read_byte(0);    /* ����һ���ֽ����� */
@@ -100,15 +100,15 @@ void at24cxx_write_one_byte(uint16_t addr, uint8_t data)
         iic_wait_ack();         /* ÿ�η�����һ���ֽ�,��Ҫ�ȴ�ACK */
         iic_send_byte(addr >> 8);/* ���͸��ֽڵ�ַ */
     }
-    else 
+    else
     {
         iic_send_byte(0XA0 + ((addr >> 8) << 1));   /* �������� 0XA0 + ��λa8/a9/a10��ַ,д���� */
     }
-    
+
     iic_wait_ack();             /* ÿ�η�����һ���ֽ�,��Ҫ�ȴ�ACK */
     iic_send_byte(addr % 256);  /* ���͵�λ��ַ */
     iic_wait_ack();             /* �ȴ�ACK, ��ʱ��ַ��������� */
-    
+
     /* ��Ϊд���ݵ�ʱ��,����Ҫ�������ģʽ��,�������ﲻ�����·�����ʼ�ź��� */
     iic_send_byte(data);        /* ����1�ֽ� */
     iic_wait_ack();             /* �ȴ�ACK */
@@ -116,7 +116,7 @@ void at24cxx_write_one_byte(uint16_t addr, uint8_t data)
 
     delay_ms(10);               /* ע��: EEPROM д��Ƚ���,����ȵ�10ms����д��һ���ֽ� */
 }
- 
+
 /**
  * @brief       ���AT24CXX�Ƿ�����
  *   @note      ���ԭ��: ��������ĩ��ַд��0X55, Ȼ���ٶ�ȡ, �����ȡֵΪ0X55

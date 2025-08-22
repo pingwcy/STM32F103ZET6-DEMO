@@ -21,10 +21,12 @@
  *
  ****************************************************************************************************
  */
+#include "cmsis_os.h"
 
 #include "../../BSP/REMOTE/remote.h"
 extern void delay_us(uint32_t nus);
 extern void delay_ms(uint16_t nms);
+extern osSemaphoreId_t remoteSemaphore;
 
 
 extern TIM_HandleTypeDef htim4;
@@ -131,6 +133,8 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
             }
 
             g_remote_sta&=~(1<<4);
+            osSemaphoreRelease(remoteSemaphore);
+
         }
     }
 }

@@ -167,7 +167,7 @@ void iic_nack(void)
 void iic_send_byte(uint8_t data)
 {
     uint8_t t;
-    
+
     for (t = 0; t < 8; t++)
     {
         IIC_SDA((data & 0x80) >> 7);    /* ��λ�ȷ��� */
@@ -199,7 +199,7 @@ uint8_t iic_read_byte(uint8_t ack)
         {
             receive++;
         }
-        
+
         IIC_SCL(0);
         iic_delay();
     }
